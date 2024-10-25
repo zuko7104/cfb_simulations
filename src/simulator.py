@@ -89,6 +89,9 @@ def win_out_except_possibly(team: TeamName, possible_losses: list[TeamName]) -> 
 iterations = 100000
 # iterations = 10000
 # iterations = 1000
+
+print(f"Running {iterations} simulations")
+
 def percent(count: int, total: int = ...) -> str:
     if total is ...:
         total = iterations
@@ -136,14 +139,14 @@ for i in range(iterations):
         if rolled_season in scenario:
             scenario.total_seasons += 1
             scenario.ccg_participants[rolled_ccg_teams] += 1
-            if scenario.description == "CO win out\nBYU 11-1":
-                print("-----------------------------------")
-                print(rolled_ccg_teams, "in ccg")
-                for team in sorted(rolled_b12.teams, key=lambda team: team.name):
-                    print(team.name, team.record)
-                for game in sorted(filter(lambda game: game.date >= today, rolled_season.games), key=lambda game: game.date):
-                    print(game.winner, "over", game.opponent(game.winner))
-                print("-----------------------------------")
+            # if scenario.description == "CO win out\nBYU 11-1":
+            #     print("-----------------------------------")
+            #     print(rolled_ccg_teams, "in ccg")
+            #     for team in sorted(rolled_b12.teams, key=lambda team: team.name):
+            #         print(team.name, team.record)
+            #     for game in sorted(filter(lambda game: game.date >= today, rolled_season.games), key=lambda game: game.date):
+            #         print(game.winner, "over", game.opponent(game.winner))
+            #     print("-----------------------------------")
 
     for team in rolled_b12.team_names:
         team_outcomes = overall_outcomes.teams[team]
@@ -320,10 +323,10 @@ def table_interesting_scenarios(scenarios: list[ScenarioOutcomes] = ..., tag: st
     fig.savefig(filename_start + f"{tag}-scenarios-table.png")
 
 
-# table_in_ccg_prob_given_total_wins()
-# table_in_ccg_prob_given_total_wins("BYU")
-# table_in_ccg_prob_given_specific_losses()
-# table_in_ccg_prob_given_specific_losses("BYU")
+table_in_ccg_prob_given_total_wins()
+table_in_ccg_prob_given_total_wins("BYU")
+table_in_ccg_prob_given_specific_losses()
+table_in_ccg_prob_given_specific_losses("BYU")
 table_interesting_scenarios(interesting_scenarios[:5], "first")
 table_interesting_scenarios(interesting_scenarios[5:10], "second")
 table_interesting_scenarios(interesting_scenarios[10:], "colorado")
