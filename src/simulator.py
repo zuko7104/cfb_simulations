@@ -234,6 +234,13 @@ def prob_in_ccg_given_total_losses(team: TeamName, ccg_target: TeamName = ...) -
         losses_counts[len(losses)] += outcomes.total_seasons
     return {total_losses: count / losses_counts[total_losses] for total_losses, count in ccg_made_counts.items()}
 
+def prob_final_win_count(team: TeamName) -> dict[int, float]:
+    team_outcomes = overall_outcomes.teams[team]
+    losses_counts: dict[int, int] = defaultdict(lambda: 0)
+    for losses, outcomes in team_outcomes.lost_to.items():
+        losses_counts[len(losses)] += outcomes.total_seasons
+    return {12 - losses: count / overall_outcomes.total_seasons for losses, count in losses_counts.items()}
+
 def table_in_ccg_prob_given_total_wins(ccg_target: TeamName = ...):
     team_probs = {team: prob_in_ccg_given_total_losses(team, ccg_target=ccg_target) for team in original_b12.team_names}
     max_losses = max(max(probs.keys()) for probs in team_probs.values())
@@ -322,7 +329,32 @@ def table_interesting_scenarios(scenarios: list[ScenarioOutcomes] = ..., tag: st
         table_cells[(0,i)].set_height(3 * table_cells[(0,i)].get_height())
     fig.savefig(filename_start + f"{tag}-scenarios-table.png")
 
+def table_record_probabilities():
+    team_probs = {team: prob_final_win_count(team) for team in original_b12.team_names}
+    min_wins = min(min(probs.keys()) for probs in team_probs.values())
+    mean_wins = {team: sum(wins * prob for wins, prob in probs.items()) for team, probs in team_probs.items()}
 
+    wins = list(range(min_wins, 13))[::-1]
+    sorted_teams = sorted(original_b12.team_names, key=lambda team: mean_wins[team], reverse=True)
+    cells = [[rounded_percent_str(team_probs[team].get(win_count)) for win_count in wins] for team in sorted_teams]
+    for team, row in zip(sorted_teams, cells):
+        row.append(round(mean_wins[team] * 100) / 100)
+    wins.append("Mean")
+
+    colors = [[percent_to_color(percent) for percent in row[:-1]] + ["w"] for row in cells]
+    
+    fig = plt.figure(figsize=(15, 7))
+    ax = plt.gca()
+    fig.patch.set_visible(False)
+    ax.set_title(f"Final Win Count Probabilities for Each Team")
+    ax.axis("off")
+    ax.axis("tight")
+    table = ax.table(cells, colLabels=wins, rowLabels=sorted_teams, loc="center", cellColours=colors)
+    table.scale(1.0, 1.5)
+    fig.savefig(filename_start + f"win-count-probs-table.png")
+
+
+table_record_probabilities()
 table_in_ccg_prob_given_total_wins()
 table_in_ccg_prob_given_total_wins("BYU")
 table_in_ccg_prob_given_specific_losses()
@@ -330,9 +362,6 @@ table_in_ccg_prob_given_specific_losses("BYU")
 table_interesting_scenarios(interesting_scenarios[:5], "first")
 table_interesting_scenarios(interesting_scenarios[5:10], "second")
 table_interesting_scenarios(interesting_scenarios[10:], "colorado")
-
-plt.show()
-exit()
 
 print("BYU Records:")
 total_wins = 0
