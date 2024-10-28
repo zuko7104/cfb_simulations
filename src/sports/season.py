@@ -10,6 +10,13 @@ TeamName: TypeAlias = str
 """The unambiguous common name for a team (e.g. "SMU", "BYU", "Alabama")"""
 ConferenceName: TypeAlias = str
 """The abreviated name of a conference (e.g. "B12")"""
+TeamPair: TypeAlias = tuple[TeamName, TeamName]
+"""A pair of team names"""
+TeamNames: TypeAlias = tuple[TeamName, ...]
+"""A tuple of team names"""
+Standing: TypeAlias = tuple[int, int]
+"""The standing of a team in a conference, of the form (position, tied_team_count)"""
+
 
 BinaryRoller: TypeAlias = Callable[[float], bool]
 """A function that draws from the binary distribution with p(success) given by
@@ -348,7 +355,7 @@ class TeamSnapshot:
         return hash(self.name)
 
 
-ChampionshipSeeder: TypeAlias = Callable[[set[TeamName], set[TeamSnapshot], list[set[TeamSnapshot]]], tuple[TeamName, TeamName]]
+ChampionshipSeeder: TypeAlias = Callable[[set[TeamName], set[TeamSnapshot], list[set[TeamSnapshot]]], TeamPair]
 
 
 @dataclass
@@ -406,7 +413,7 @@ class ConferenceSnapshot:
         return list(map(lambda item: item[1], sorted(win_percentage_to_teams.items(), key=lambda a: a[0], reverse=True)))
 
     @cached_property
-    def championship_game_participants(self) -> tuple[TeamName, TeamName] | None:
+    def championship_game_participants(self) -> TeamPair | None:
         if not self.has_championship_game or self.championship_seeder is None:
             return None
         return self.championship_seeder(self.team_names, self.teams, self.standings)
@@ -417,7 +424,7 @@ class ConferenceSnapshot:
             return None
         return self.championship_seeder(self.team_names, self.teams, self.standings)[0]
     
-    def ranking(self, team: TeamName) -> tuple[int, int]:
+    def standing(self, team: TeamName) -> Standing:
         if team not in self.team_names:
             raise ValueError(f"{self.name} does not contain {team}")
         teams_above = 0
@@ -458,8 +465,10 @@ class SeasonSnapshot:
                 break
         else:
             raise ValueError(f"No such conference: {conference}")
-            
-        return self.__clone_with_games({game.clone() for game in self.games if conf.teams in game})
+        
+        games = {game.clone() for game in self.games if conf.teams in game}
+        conferences = {conf}
+        return SeasonSnapshot(self.year, conferences, games)
 
     def team(self, name: TeamName) -> TeamSnapshot:
         """Get the data for one team"""
