@@ -89,17 +89,17 @@ class Game:
         if self.is_over:
             return self.final_score[0] == self.final_score[1]
         return None
-    
+
     def __contains__(self, team: TeamName | Iterable[TeamName]) -> bool:
         if isinstance(team, TeamName):
             return team == self.team_a or team == self.team_b
         else:
             return any(t in self for t in team)
-    
+
     def win_probability(self, team: TeamName) -> float:
         """
         Returns the win probability of the indicated team
-        
+
         The win probability for a team that won is 1, for a team that lost is 0.
         """
         if team not in self:
@@ -111,15 +111,15 @@ class Game:
                 return self.team_a_win_probability
             else:
                 return self.team_b_win_probability
-    
+
     def opponent(self, team: TeamName) -> TeamName:
         if team not in self:
             raise ValueError("No such team in this game")
         return self.team_a if team == self.team_b else self.team_b
-    
+
     def clone(self) -> "Game":
         return Game(self.date, self.team_a, self.team_b, self.neutral, self.final_score, self.team_a_win_probability)
-    
+
     def __clone_with_score(self, final_score: tuple[int, int]) -> "Game":
         return Game(self.date, self.team_a, self.team_b, self.neutral, final_score, None)
 
@@ -134,7 +134,7 @@ class Game:
                 return self.force_outcome_if_not_over(loser, False)
         final_score = (1, 0) if roller(self.team_a_win_probability) else (0, 1)
         return self.__clone_with_score(final_score)
-    
+
     def force_outcome_if_not_over(self, team: TeamName, win: bool) -> "Game":
         if self.is_over:
             return self
@@ -145,7 +145,7 @@ class Game:
         else:
             score = (0, 1)
         return self.__clone_with_score(score)
-    
+
     @staticmethod
     def deserialize(serialized: str) -> "Game":
         d, team_a, team_b, n, s, p = serialized.split("*")
@@ -154,13 +154,13 @@ class Game:
         score = _score_from_string(s)
         prob = _probability_from_string(p)
         return Game(date, team_a.strip(), team_b.strip(), neutral, score, prob)
-    
+
     def serialize(self) -> str:
         return "*".join((str(self.date), self.team_a, self.team_b, _string_from_bool(self.neutral), _string_from_score(self.final_score), _string_from_probability(self.team_a_win_probability)))
-    
+
     def __hash__(self) -> int:
         return hash(self.date) * hash(self.team_a) * hash(self.team_b)
-    
+
 
 
 @dataclass
@@ -175,10 +175,10 @@ class Division:
     def deserialize(serialized: str) -> "Division":
         parts = [part.strip() for part in serialized.split(",")]
         return Division(parts[0], parts[1:])
-        
+
     def serialize(self) -> str:
         return self.name + "," + ",".join(self.team_names)
-    
+
     def __hash__(self) -> int:
         return hash(self.name)
 
@@ -205,7 +205,10 @@ class TeamSnapshot:
     def played_opponents(self) -> set[TeamName]:
         return {game.opponent(self.name) for game in self.played_games}
     @cached_property
-    def wins(self) -> int: 
+    def remaining_opponents(self) -> set[TeamName]:
+        return {game.opponent(self.name) for game in self.remaining_games}
+    @cached_property
+    def wins(self) -> int:
         """The number of wins so far this season"""
         return sum(map(lambda game: 1 if game.winner == self.name else 0, self.played_games))
     @cached_property
@@ -260,7 +263,7 @@ class TeamSnapshot:
         losses = self.predicted_losses
         ties = self.ties
         return f"{wins}-{losses}" if ties <= 0 else f"{wins}-{losses}-{ties}"
-    
+
     def has_played(self, teams: set[TeamName]) -> bool:
         # TODO This is only for 2024
         if (self.name == "Kansas St" and "Arizona" in teams) or (self.name == "Arizona" and "Kansas St" in teams):
@@ -268,10 +271,10 @@ class TeamSnapshot:
         if (self.name == "Utah" and "Baylor" in teams) or (self.name == "Baylor" and "Utah" in teams):
             return False
         return self.played_opponents.issuperset(teams)
-    
+
     def plays_any(self, teams: set[TeamName]) -> bool:
         return len(self.opponents.intersection(teams)) > 0
-    
+
     def filtered_record(self, teams: set[TeamName]) -> tuple[int, int, int]:
         # TODO This is only for 2024
         if self.name == "Kansas St":
@@ -286,7 +289,7 @@ class TeamSnapshot:
         wins = 0
         losses = 0
         ties = 0
-        
+
         for game in filter(lambda game: game.is_over and game.opponent(self.name) in teams, self.games):
             if game.is_tie:
                 ties += 1
@@ -301,27 +304,117 @@ class TeamSnapshot:
         wins, losses, ties = self.filtered_record(teams)
         total = wins + losses + ties
         return wins / total if total > 0 else 1.0
-    
+
     def __clone_with_games(self, games: set[Game]) -> "TeamSnapshot":
         return TeamSnapshot(self.name, games, self.conference)
-    
+
+    def game_against(self, opponent: TeamName) -> Game:
+        for game in self.games:
+            if game.opponent(self.name) == opponent:
+                return game
+        raise ValueError(f"{self.name} has no such opponent: {opponent}")
+
     def clone(self) -> "TeamSnapshot":
         return self.__clone_with_games([game.clone() for game in self.games])
 
-    def roll(self, roller: UniformRoller, *, force_future_loss_count: int | None = None) -> "TeamSnapshot":
+    def probability_of(
+            self,
+            total_wins: int,
+            wins_against: set[TeamName] = set(),
+            losses_against: set[TeamName] = set()
+        ) -> tuple[float, dict[TeamPair, float]]:
+        prob: float = 1.0
+        factors = {}
+        remaining_games: list[Game] = []
+        for game in self.remaining_games:
+            opponent = game.opponent(self.name)
+            if opponent in wins_against:
+                p = game.win_probability(self.name)
+                factors[tuple(sorted([self.name, opponent]))] = p
+                prob *= p
+            elif opponent in losses_against:
+                p = game.win_probability(opponent)
+                factors[tuple(sorted([self.name, opponent]))] = p
+                prob *= p
+            else:
+                remaining_games.append(game)
+
+        remaining_losses = len(self.games) - total_wins - len(self.losses_against) - len(losses_against)
+        if remaining_losses <= 0:
+            for game in remaining_games:
+                opponent = game.opponent(self.name)
+                p = game.win_probability(self.name)
+                factors[tuple(sorted([self.name, opponent]))] = p
+                prob *= p
+        elif remaining_losses == len(remaining_games):
+            for game in remaining_games:
+                opponent = game.opponent(self.name)
+                p = game.win_probability(opponent)
+                factors[tuple(sorted([self.name, opponent]))] = p
+                prob *= p
+        else:
+            win_probabilities = [game.win_probability(self.name) for game in remaining_games]
+            loss_combos = set(combinations(list(range(len(remaining_games))), remaining_losses))
+            combo_probabilities = []
+            for loss_combo in loss_combos:
+                p = 1.0
+                for i, win_probability in enumerate(win_probabilities):
+                    p *= (1 - win_probability) if i in loss_combo else win_probability
+                combo_probabilities.append(p)
+            prob *= sum(combo_probabilities)
+        return prob, factors
+
+    def roll(
+            self,
+            roller: UniformRoller,
+            *,
+            force_total_wins: int | None = None,
+            force_future_loss_count: int | None = None,
+            force_wins_against: set[TeamName] = set(),
+            force_losses_against: set[TeamName] = set()
+        ) -> "TeamSnapshot":
         binary_roller = lambda p: roller() <= p
+
+        if force_total_wins:
+            force_future_loss_count = len(self.games) - force_total_wins - len(self.losses_against)
+        # print(self.name, "future losses:", force_future_loss_count)
+
+        if (force_wins_against & force_losses_against) or not force_wins_against.issubset(self.remaining_opponents) or not force_losses_against.issubset(self.remaining_opponents):
+            raise ValueError(f"{self.name} cannot beat {force_wins_against} and lose to {force_losses_against}; {self.remaining_opponents}")
+        # TODO min and max wins
+
         if force_future_loss_count is None:
             return self.__clone_with_games([game.roll(binary_roller) for game in self.games])
-        if force_future_loss_count < 0 or force_future_loss_count > len(self.remaining_games):
-            raise ValueError(f"{self.name} cannot lose {force_future_loss_count} games")
+        if force_future_loss_count < 0 or force_future_loss_count > (len(self.remaining_games) - len(force_wins_against)):
+            raise ValueError(f"{self.name} cannot lose {force_future_loss_count} games if win {force_wins_against}")
+        if len(force_losses_against) > force_future_loss_count:
+            raise ValueError(f"{self.name} forced to {force_future_loss_count} future losses but specifically lose to {force_losses_against}")
         if force_future_loss_count == 0:
-            return self.__clone_with_games([game.force_outcome_if_not_over(self.name, True) for game in self.games]) 
+            return self.__clone_with_games([game.force_outcome_if_not_over(self.name, True) for game in self.games])
         if force_future_loss_count == len(self.remaining_games):
             return self.__clone_with_games([game.force_outcome_if_not_over(self.name, False) for game in self.games])
-        
+
         games = [game for game in self.games if game.is_over]
-        win_probabilities = [game.win_probability(self.name) for game in self.remaining_games]
-        loss_combos = {combo for combo in combinations(list(range(len(self.remaining_games))), force_future_loss_count)}
+
+        # print("force wins:", force_wins_against)
+        # print("force losses:", force_losses_against)
+
+        remaining_games: list[Game] = []
+        for game in self.remaining_games:
+            opponent = game.opponent(self.name)
+            if opponent in force_wins_against:
+                # print(self.name, "forced to beat", opponent)
+                games.append(game.force_outcome_if_not_over(self.name, True))
+            elif opponent in force_losses_against:
+                # print(self.name, "forced to lose to", opponent)
+                games.append(game.force_outcome_if_not_over(self.name, False))
+            else:
+                remaining_games.append(game)
+
+        remaining_losses = force_future_loss_count - len(force_losses_against)
+
+        win_probabilities = [game.win_probability(self.name) for game in remaining_games]
+        loss_combos = set(combinations(list(range(len(remaining_games))), remaining_losses))
         combo_probabilities = []
         for loss_combo in loss_combos:
             p = 1.0
@@ -335,7 +428,7 @@ class TeamSnapshot:
             running_total += prob
             buckets.append(running_total / total)
         buckets[-1] = 1.0
-        
+
         roll = roller()
         for combo, bucket in zip(loss_combos, buckets):
             if roll <= bucket:
@@ -343,14 +436,15 @@ class TeamSnapshot:
                 break
         else:
             raise ValueError(f"{roll} not in {buckets}")
+        # print("rolled losses:", losses)
 
-        for i, game in enumerate(self.remaining_games):
+        for i, game in enumerate(remaining_games):
             result = game.force_outcome_if_not_over(self.name, i not in losses)
             games.append(result)
-        
+
         assert len(games) == len(self.games)
-        return self.__clone_with_games(games)
-    
+        return self.__clone_with_games(sorted(games, key=lambda game: game.date))
+
     def __hash__(self) -> int:
         return hash(self.name)
 
@@ -379,7 +473,7 @@ class Conference:
         divisions = {Division.deserialize(part) for part in serialized[3].split("&") if part}
         championship_seeder = championship_seeder_getter(name)
         return Conference(name, teams, divisions, has_championship_game, championship_seeder)
-    
+
     def serialize(self) -> list[str]:
         return [
             self.name,
@@ -387,7 +481,7 @@ class Conference:
             ",".join(self.teams),
             "&".join(division.serialize() for division in self.divisions) if self.divisions else "",
         ]
-    
+
     def __hash__(self) -> int:
         return hash(self.name)
 
@@ -423,7 +517,7 @@ class ConferenceSnapshot:
         if self.has_championship_game or self.championship_seeder is None:
             return None
         return self.championship_seeder(self.team_names, self.teams, self.standings)[0]
-    
+
     def standing(self, team: TeamName) -> Standing:
         if team not in self.team_names:
             raise ValueError(f"{self.name} does not contain {team}")
@@ -434,17 +528,23 @@ class ConferenceSnapshot:
                     return teams_above + 1, len(tier)
             teams_above += len(tier)
         raise ValueError("Impossible to be here")
-    
+
     @staticmethod
     def from_conference(conference: Conference, teams: set[TeamSnapshot]):
         return ConferenceSnapshot(conference.name, teams, conference.divisions, conference.has_championship_game, conference.championship_seeder)
-    
-    
-@dataclass
+
+
 class SeasonSnapshot:
     year: int
     conferences: set[Conference]
     games: set[Game]
+
+    def __init__(self, year: int, conferences: set[Conference], games: set[Game]):
+        self.year = year
+        self.conferences = conferences
+        self.games = games
+
+        self.__teams: dict[TeamName, TeamSnapshot] = {}
 
     def __team_from_games_subset(self, name: TeamName, games: set[Game]) -> TeamSnapshot:
         for conf in self.conferences:
@@ -455,9 +555,9 @@ class SeasonSnapshot:
             conference = None
 
         games = sorted(filter(lambda game: name in game, games), key=lambda game: game.date)
-        
+
         return TeamSnapshot(name, games, conference)
-    
+
     def filter(self, conference: ConferenceName) -> "SeasonSnapshot":
         for c in self.conferences:
             if c.name == conference:
@@ -465,15 +565,19 @@ class SeasonSnapshot:
                 break
         else:
             raise ValueError(f"No such conference: {conference}")
-        
+
         games = {game.clone() for game in self.games if conf.teams in game}
         conferences = {conf}
         return SeasonSnapshot(self.year, conferences, games)
 
     def team(self, name: TeamName) -> TeamSnapshot:
         """Get the data for one team"""
-        return self.__team_from_games_subset(name, self.games)
-    
+        if name in self.__teams:
+            return self.__teams[name]
+        team = self.__team_from_games_subset(name, self.games)
+        self.__teams[name] = team
+        return team
+
     def conference(self, name: ConferenceName) -> ConferenceSnapshot:
         for c in self.conferences:
             if c.name == name:
@@ -481,54 +585,63 @@ class SeasonSnapshot:
                 break
         else:
             raise ValueError(f"No such conference {name}")
-        
+
         teams = {self.team(team) for team in conf.teams}
         if not teams:
             raise ValueError(f"Empty teams in conference {name}")
 
         return ConferenceSnapshot.from_conference(conf, teams)
-    
+
     def __clone_with_games(self, games: set[Game]) -> "SeasonSnapshot":
         return SeasonSnapshot(self.year, self.conferences, games)
 
     def clone(self) -> "SeasonSnapshot":
         return self.__clone_with_games({game.clone() for game in self.games})
 
-    def roll(self, roller: UniformRoller, *,
-             force_future_loss_counts: dict[TeamName, int] | None = None,
-             force_winners: list[TeamName] | None = None,
-             force_losers: list[TeamName] | None = None) -> "SeasonSnapshot":
-        force_winners = force_winners or []
-        force_losers = force_losers or []
+    def roll(
+            self,
+            roller: UniformRoller,
+            *,
+            game_forcers: list[Callable[[UniformRoller, "SeasonSnapshot"], Iterable[Game]]] = None
+        ) -> "SeasonSnapshot":
         binary_roller = lambda p: roller() <= p
-        if not force_future_loss_counts:
-            games = {game.roll(binary_roller, force_winners=force_winners, force_losers=force_losers) for game in self.games}
+        if not game_forcers:
+            games = {game.roll(binary_roller) for game in self.games}
             return self.__clone_with_games(games)
-        
-        if any(losses < 0 for losses in force_future_loss_counts.values()):
-            raise ValueError("Negative loss count")
-        if not force_future_loss_counts.keys().isdisjoint(force_winners) or not force_future_loss_counts.keys().isdisjoint(force_losers):
-            raise ValueError("Force future loss count not disjoint from forced winners and losers")
-        
-        games = {game.roll(binary_roller, force_winners=force_winners, force_losers=force_losers) for game in self.games if game.is_over or (force_winners in game or force_losers in game or force_future_loss_counts.keys() not in game)}
-        remaining_games = {game for game in self.games if not game.is_over and force_future_loss_counts.keys() in game}
-        teams = {self.__team_from_games_subset(team, remaining_games) for team in force_future_loss_counts.keys()}
 
-        for team in teams:
-            if force_future_loss_counts[team.name] > len(team.games):
-                raise ValueError(f"{team.name} can't lose {force_future_loss_counts[team.name]} more games")
-            if team.plays_any(teams):
-                raise NotImplementedError(f"Forcing win counts for teams that play each other is not implemented: {teams}")
+        def add_no_conflicts(existing_games: set[Game], new_games: set[Game], raise_on_conflict: bool = True):
+            for new in new_games:
+                for existing in existing_games:
+                    if existing.team_a in new and existing.team_b in new:
+                        if raise_on_conflict and existing.winner != new.winner:
+                            raise ValueError(f"Game conflict: {existing} {new}")
+                        break
+                else:
+                    existing_games.add(new)
 
-        assert(sum(len(team.games) for team in teams) == len(remaining_games))
+        def contains_game(games: set[Game], team_1: TeamName, team_2: TeamName):
+            for game in games:
+                if team_1 in game and team_2 in game:
+                    return True
+            return False
 
-        for team in teams:
-            games.update(team.roll(roller, force_future_loss_count=force_future_loss_counts[team.name]).games)
-        
+        games: set[Game] = set()
+
+        for forcer in game_forcers:
+            new_games = forcer(roller, self)
+            # print("----")
+            # for game in new_games:
+                # print(f"  {game.winner} over {game.opponent(game.winner)}")
+            add_no_conflicts(games, new_games)
+
+        for game in self.games:
+            if not contains_game(games, game.team_a, game.team_b):
+                games.add(game.roll(binary_roller))
+
         assert(len(games) == len(self.games))
-        
+
         return self.__clone_with_games(games)
-    
+
     @staticmethod
     def deserialize(lines: Iterable[str], championship_seeder_getter: Callable[[ConferenceName], ChampionshipSeeder | None]) -> "SeasonSnapshot":
         year: int | None = None
@@ -563,7 +676,7 @@ class SeasonSnapshot:
             print("unknown line:", line)
 
         return SeasonSnapshot(year, conferences, games)
-    
+
     def serialize(self) -> list[str]:
         lines: list[str] = []
         lines.append(str(self.year))

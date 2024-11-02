@@ -38,12 +38,7 @@ def against_highest_common_opponent(all_team_names: set[TeamName], all_teams: se
     del all_teams
     all_common_opponents = _all_common_opponents(all_team_names, tied_teams)
     untied = []
-    found = False
     for tier in standings:
-        if not found:
-            if tier.intersection(tied_teams):
-                found = True
-            continue
         tier_common_opponents = {team.name for team in tier if team.name in all_common_opponents}
         tier_results = sorted_with_ties(tied_teams, key=lambda team: team.filtered_win_percentage(tier_common_opponents), reverse=True)
         if len(tier_results) > 1:
@@ -61,7 +56,7 @@ def against_all_common_opponents(all_team_names: set[TeamName], all_teams: set[T
     for team in tied_teams:
         all_common_opponents.intersection_update(team.played_opponents)
     return sorted_with_ties(tied_teams, key=lambda team: team.filtered_win_percentage(all_common_opponents), reverse=True)
-    
+
 def strength_of_conference_schedule(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], tied_teams: set[TeamSnapshot], standings: list[set[TeamSnapshot]]) -> list[set[TeamSnapshot]]:
     del standings
     def conf_sos(team: TeamSnapshot) -> float:
@@ -75,7 +70,7 @@ def strength_of_conference_schedule(all_team_names: set[TeamName], all_teams: se
             conference_opponents = conference_opponents.difference({"Baylor"})
         elif team.name == "Baylor":
             conference_opponents = conference_opponents.difference({"Utah"})
-        
+
         wins = 0
         played = 0
         for opponent in filter(lambda team: team.name in conference_opponents, all_teams):
@@ -84,7 +79,7 @@ def strength_of_conference_schedule(all_team_names: set[TeamName], all_teams: se
             played += w + l + t
         return wins / max(played, 1)
     return sorted_with_ties(tied_teams, key=conf_sos, reverse=True)
-    
+
 def total_wins_in_12_game_season(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], tied_teams: set[TeamSnapshot], standings: list[set[TeamSnapshot]]) -> list[set[TeamSnapshot]]:
     del all_team_names, all_teams, standings
     def wins_in_12_game_season(team: TeamSnapshot) -> int:
@@ -107,12 +102,12 @@ def coin_toss(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], tied_
             break
     if place > 1 or len(tied_teams) > 2:
         print(f"WARN: coin toss decided winner of {[team.name for team in tied_teams]} for {place}: {[team.losses_against for team in tied_teams]}, {[team.name for team in standings[0]]} is first place")
-        for tier in standings:
-            print("[")
-            for team in tier:
-                wins = team.filtered_record(all_team_names)[0]
-                print("   ", team.name, wins, "wins:", team.wins_against & all_team_names, "losses:", team.losses_against & all_team_names)
-            print("],")
+        # for tier in standings:
+        #     print("[")
+        #     for team in tier:
+        #         wins = team.filtered_record(all_team_names)[0]
+        #         print("   ", team.name, wins, "wins:", team.wins_against & all_team_names, "losses:", team.losses_against & all_team_names)
+        #     print("],")
     winner = random.choice(list(tied_teams))
     return [{winner}, tied_teams.difference({winner})]
 
@@ -128,8 +123,8 @@ def big12_championship_seeder(all_team_names: set[TeamName], all_teams: set[Team
                 (r2,) = result[1]
                 return r1, r2
         raise ValueError(f"Unable to break tie between {tied_teams}; standings are {standings}")
-    
-    def multi_team_tiebreaker(tied_teams: set[TeamSnapshot]) -> list[set[TeamSnapshot]]:
+
+    def multi_team_tiebreaker(tied_teams: set[TeamSnapshot]) -> TeamSnapshot | set[TeamSnapshot]: # -> list[set[TeamSnapshot]]:
         tiebroken_tiers = [tied_teams]
         for tiebreaker in tiebreakers:
             result = tiebreaker(all_team_names, all_teams, tiebroken_tiers[0], standings)
@@ -137,36 +132,37 @@ def big12_championship_seeder(all_team_names: set[TeamName], all_teams: set[Team
                 tiebroken_tiers = result + tiebroken_tiers[1:]
             else:
                 tiebroken_tiers = result
-            if len(tiebroken_tiers[0]) < 3:
-                return tiebroken_tiers
+            if len(tiebroken_tiers[0]) == 1:
+                return next(iter(tiebroken_tiers[0]))
+            elif len(tiebroken_tiers[0]) == 2:
+                return tiebroken_tiers[0]
         raise ValueError(f"Unable to break tie between {tied_teams}; standings are {standings}")
 
     seed_1: TeamSnapshot | None = None
     seed_2: TeamSnapshot | None = None
-    while seed_1 is None or seed_2 is None:
-        if seed_1 is None:
-            if len(standings[0]) == 0:
-                raise ValueError(f"Impossible standings: {standings}")
-            elif len(standings[0]) == 1:
-                (seed_1,) = standings[0]
-            elif len(standings[0]) == 2:
-                seed_1, seed_2 = two_team_tiebreaker(standings[0])
-                break
-            else:
-                tiebreak_results = multi_team_tiebreaker(standings[0])
-                standings = tiebreak_results + standings[1:]
-                continue
-        if seed_2 is None:
-            if len(standings[1]) == 0:
-                raise ValueError(f"Impossible standings: {standings}")
-            elif len(standings[1]) == 1:
-                (seed_2,) = standings[1]
-                break
-            elif len(standings[1]) == 2:
-                seed_2 = two_team_tiebreaker(standings[1])[0]
-                break
-            else:
-                tiebreak_results = multi_team_tiebreaker(standings[1])
-                standings = [standings[0]] + tiebreak_results + standings[2:]
-                continue
+
+    if len(standings[0]) == 1:
+        (seed_1,) = standings[0]
+        if len(standings[1]) == 1:
+            (seed_2,) = standings[1]
+        elif len(standings[1]) == 2:
+            seed_2, _ = two_team_tiebreaker(standings[1])
+        else:
+            seed_2 = multi_team_tiebreaker(standings[1])
+            if not isinstance(seed_2, TeamSnapshot):
+                seed_2, _ = two_team_tiebreaker(seed_2)
+    elif len(standings[0]) == 2:
+        seed_1, seed_2 = two_team_tiebreaker(standings[0])
+    else:
+        seed_1 = multi_team_tiebreaker(standings[0])
+        if not isinstance(seed_1, TeamSnapshot):
+            seed_1, _ = two_team_tiebreaker(seed_1)
+        remaining = {team for team in standings[0] if team.name != seed_1.name}
+        if len(remaining) == 2:
+            seed_2, _ = two_team_tiebreaker(remaining)
+        else:
+            seed_2 = multi_team_tiebreaker(remaining)
+            if not isinstance(seed_2, TeamSnapshot):
+                seed_2, _ = two_team_tiebreaker(seed_2)
+
     return seed_1.name, seed_2.name

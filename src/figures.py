@@ -1,4 +1,4 @@
-from sports.season import TeamName, TeamNames, ConferenceName
+from sports.season import TeamName, TeamNames, ConferenceName, TeamPair
 from sports.outcomes import ConferenceSeasonOutcomes, ScenarioOutcomes, WeekOutcomes
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -6,33 +6,33 @@ from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 import math
 
 def _get_team_logo(team: TeamName):
-    return plt.imread(f"assets/{team.lower().replace(" ", "_")}.png") 
+    return plt.imread(f"assets/{team.lower().replace(" ", "_")}.png")
 
 def _rounded_percent(probability: float) -> float:
     if probability < 1:
         probability = min(0.999, probability)
     return round(probability * 1000) / 10
 
-def _rounded_percent_str(probability: float | None) -> str:
+def _rounded_percent_str(probability: float | None, digits: int = 1) -> str:
     if probability is None:
         return  ""
     if probability == 0:
         return "0.0%"
-    if probability < 0.001:
-        return "<0.1%"
+    if probability < (10 ** (-2 - digits)):
+        return f"<{10 ** (-digits)}%"
     if probability < 1:
-        probability = min(0.999, probability)
-    return f"{round(probability * 1000) / 10}%"
+        probability = min((10 ** (2 + digits) - 1) / (10 ** (2 + digits)), probability)
+    return f"{round(probability * (10 ** (2 + digits))) / (10 ** digits)}%"
 
 def _percent_to_color(percent: str, default: str="#555555", target: tuple[int, int, int] = (0x33, 0xff, 0x33)):
     if percent == "":
         return default
-    
+
     try:
         if percent[1] == "<":
             prob = 0.0005
         else:
-            prob = float(percent[:-1]) / 100
+            prob = float(percent.split(" ")[0][:-1]) / 100
     except ValueError:
         return "w"
 
@@ -81,14 +81,14 @@ class ConferenceFigures:
         self.__scenarios = scenarios
         self.__week = week_outcomes
         self.__figures: dict[str, Figure] = {}
-    
+
     def save(self, path_prefix: str = ""):
         for path, fig in self.__figures.items():
             fig.savefig(path_prefix + path + ".png")
-    
+
     def show(self):
         plt.show()
-    
+
     def all_figures(self, interesting_teams: list[TeamName], ccg_target: str | None = None):
         self.bars_ccg_probabilities()
         self.bars_ccg_matchups()
@@ -101,17 +101,26 @@ class ConferenceFigures:
         if ccg_target:
             self.table_in_ccg_prob_given_total_wins(ccg_target)
             self.table_in_ccg_prob_given_specific_losses(interesting_teams, ccg_target)
-    
+
     def table_week(self, ccg_target: TeamName):
+        starting_ccg_prob = self.__conference.prob_in_ccg(ccg_target)
+        worst_decrease = 0.0
+        best_increase = 0.0
+
         cells = []
+        data = []
         for matchup in self.__week.games:
             prob_if_away_win = self.__week.prob_in_ccg_given_winners({matchup[0]}, ccg_target)
             prob_if_home_win = self.__week.prob_in_ccg_given_winners({matchup[1]}, ccg_target)
+            best_increase = max(best_increase, prob_if_away_win - starting_ccg_prob, prob_if_home_win - starting_ccg_prob)
+            worst_decrease = min(worst_decrease, prob_if_away_win - starting_ccg_prob, prob_if_home_win - starting_ccg_prob)
             preferred_team = matchup[0] if prob_if_away_win > prob_if_home_win else matchup[1]
-            cells.append([_rounded_percent_str(prob_if_away_win), _rounded_percent_str(prob_if_home_win), preferred_team])
+            data.append([prob_if_away_win, prob_if_home_win])
+            cells.append([_rounded_percent_str(prob_if_away_win) + f" ({'-' if prob_if_away_win < starting_ccg_prob else '+'}{_rounded_percent_str(abs(prob_if_away_win - starting_ccg_prob))})", _rounded_percent_str(prob_if_home_win) + f" ({'-' if prob_if_home_win < starting_ccg_prob else '+'}{_rounded_percent_str(abs(prob_if_home_win - starting_ccg_prob))})", preferred_team])
+
         matchups = [f"{matchup[0]} @ {matchup[1]}" for matchup in self.__week.games]
         col_labels = ["If Away Team Wins", "If Home Team Wins", "Preferred Team"]
-        colors = [[_percent_to_color(percent) for percent in row] for row in cells]
+        colors = [[_percent_to_color(_rounded_percent_str(abs(prob - starting_ccg_prob) / max(best_increase, -worst_decrease)), target=(100, 255, 100) if prob > starting_ccg_prob else (255, 100, 100)) for prob in row] + ["w"] for row in data]
 
         title = f"Probability of {ccg_target} Making the CCG Given This Week's Matchup Results"
         fig = plt.figure(title, figsize=(20, 4))
@@ -138,28 +147,41 @@ class ConferenceFigures:
             return -1
         def pad(s: str) -> str:
             return f"{s:11}"
-        
-        # TODO Calculate best 2, 3, 4 winner combinations
+
+        def winner_combinations(matchups: list[TeamPair], number: int) -> list[TeamNames]:
+            if number > len(matchups):
+                raise ValueError()
+            def gen_winners(remaining_matchups: list[TeamPair], remaining_winners: int):
+                for i in range(len(remaining_matchups) - remaining_winners + 1):
+                    if remaining_winners > 1:
+                        for future_winners in gen_winners(remaining_matchups[i+1:], remaining_winners - 1):
+                            for winner in remaining_matchups[i]:
+                                yield (winner, *future_winners)
+                    else:
+                        for winner in remaining_matchups[i]:
+                            yield (winner,)
+            return list(gen_winners(matchups, number))
 
         print("Possible weekly outcomes")
-        for winners in self.__week.permutations.keys():
-            ccg_prob = self.__week.prob_in_ccg_given_winners(set(winners), ccg_target)
-            prob = self.__week.prob_of_winners(set(winners))
-            score = ccg_prob * prob
-            print(f"{','.join(pad(winner) for winner in sorted(winners, key=index_lookup))}, P(winners): {_rounded_percent_str(prob):>5} P(CCG): {_rounded_percent_str(ccg_prob):>5} score: {_rounded_percent(score)}")
-            if ccg_prob > best_ccg_prob:
-                best_winners = winners
-                best_ccg_prob = ccg_prob
-                best_prob = prob
-            if score > most_realistic_score:
-                most_realistic_winners = winners
-                most_realistic_score = score
-                most_realistic_ccg_prob = ccg_prob
-                most_realistic_prob = prob
-            
+        for i in range(1, len(self.__week.games) + 1):
+            for winners in winner_combinations(self.__week.games, i):
+                ccg_prob = self.__week.prob_in_ccg_given_winners(set(winners), ccg_target)
+                prob = self.__week.prob_of_winners(set(winners))
+                score = (ccg_prob - starting_ccg_prob) * prob
+                print(f"{', '.join(pad(winner) for winner in sorted(winners, key=index_lookup))}, P(winners): {_rounded_percent_str(prob):>5} P(CCG): {_rounded_percent_str(ccg_prob):>5} score: {_rounded_percent(score)}")
+                if ccg_prob > best_ccg_prob:
+                    best_winners = winners
+                    best_ccg_prob = ccg_prob
+                    best_prob = prob
+                if score > most_realistic_score:
+                    most_realistic_winners = winners
+                    most_realistic_score = score
+                    most_realistic_ccg_prob = ccg_prob
+                    most_realistic_prob = prob
+
         cells = [
-            [", ".join(best_winners), _rounded_percent_str(best_prob), _rounded_percent_str(best_ccg_prob)],
-            [", ".join(most_realistic_winners), _rounded_percent_str(most_realistic_prob), _rounded_percent_str(most_realistic_ccg_prob)]
+            [", ".join(best_winners), _rounded_percent_str(best_prob), _rounded_percent_str(best_ccg_prob) + f" (+{_rounded_percent_str(best_ccg_prob - starting_ccg_prob)})"],
+            [", ".join(most_realistic_winners), _rounded_percent_str(most_realistic_prob), _rounded_percent_str(most_realistic_ccg_prob) + f" (+{_rounded_percent_str(most_realistic_ccg_prob - starting_ccg_prob)})"]
         ]
         row_labels = ["Best Outcome", "Most Realistic Good Outcome"]
         col_labels = ["Winners", "Scenario Probability", f"{ccg_target} CCG Probability"]
@@ -175,7 +197,7 @@ class ConferenceFigures:
         table = ax.table(cells, colLabels=col_labels, rowLabels=row_labels, loc="center", cellColours=colors)
         table.scale(1.0, 1.5)
         self.__figures[f"{ccg_target.lower()}-best-week-results"] = fig
-    
+
     def table_in_ccg_prob_given_total_wins(self, ccg_target: TeamName = ...):
         team_probs = {team: self.__conference.prob_in_ccg_given_total_losses(team, ccg_target=ccg_target) for team in self.__conference.team_names}
         max_losses = max(max(probs.keys()) for probs in team_probs.values())
@@ -188,9 +210,9 @@ class ConferenceFigures:
             wins.append("Total")
             for team, row in zip(sorted_teams, cells):
                 row.append(_rounded_percent_str(self.__conference.teams[team].made_ccg / self.__conference.total_seasons))
-        
+
         colors = [[_percent_to_color(percent) for percent in row] for row in cells]
-        
+
         title = f"Probability of {'Each Team' if ccg_target is ... else ccg_target} Making the CCG Given Total Wins"
         fig = plt.figure(title, figsize=(15, 7))
         ax = plt.gca()
@@ -246,7 +268,7 @@ class ConferenceFigures:
             cells.append(row)
         colors = [[_percent_to_color(percent, default="w") for percent in row] for row in cells]
         row_labels = ["Probability of Scenario"] + [f"{team} CCG Probability" for team in teams]
-        col_labels = [scenario.description for scenario in scenarios]
+        col_labels = [str(scenario) for scenario in scenarios]
         return cells, row_labels, col_labels, colors
 
     def table_scenarios(self, teams: list[TeamName]):
@@ -280,9 +302,47 @@ class ConferenceFigures:
             table = ax.table(cells, colLabels=col_labels, rowLabels=row_labels, loc="lower center", cellColours=colors)
             table.scale(1.0, 1.5)
             table_cells = table.get_celld()
-            for i in range(len(col_labels)):
-                table_cells[(0,i)].set_height(3 * table_cells[(0,i)].get_height())
+            for j in range(len(col_labels)):
+                table_cells[(0,j)].set_height(3 * table_cells[(0,j)].get_height())
             self.__figures[f"scenarios-table-{i}"] = fig
+
+    def table_structured_scenarios(self, ccg_target: TeamName, table_data: list[list[ScenarioOutcomes]], row_labels: list[str], col_labels: list[str], show_scenario_probs: bool = True):
+        # print(ccg_target, len(table_data), len(row_labels), len(col_labels))
+        # print([len(row) for row in table_data])
+        cells = [[_rounded_percent_str(scenario.prob_in_ccg(ccg_target)) for scenario in row] for row in table_data]
+        colors = [[_percent_to_color(percent) for percent in row] for row in cells]
+
+        title = f"{ccg_target} CCG Probability in Various Scenarios"
+        fig = plt.figure(title, figsize=(20, 7))
+        ax = plt.gca()
+        fig.patch.set_visible(False)
+        ax.set_title(title)
+        ax.axis("off")
+        ax.axis("tight")
+        table = ax.table(cells, colLabels=col_labels, rowLabels=row_labels, loc="center", cellColours=colors)
+        table.scale(1.0, 1.5)
+        table_cells = table.get_celld()
+        for i in range(len(col_labels)):
+            table_cells[(0,i)].set_height(4 * table_cells[(0,i)].get_height())
+        self.__figures[f"scenarios-detailed-{ccg_target}-ccg-probs"] = fig
+
+        if show_scenario_probs:
+            cells = [[_rounded_percent_str(scenario.probability, 2) for scenario in row] for row in table_data]
+            colors = [[_percent_to_color(percent) for percent in row] for row in cells]
+
+            title = f"Scenario Probabilities"
+            fig = plt.figure(title, figsize=(20, 7))
+            ax = plt.gca()
+            fig.patch.set_visible(False)
+            ax.set_title(title)
+            ax.axis("off")
+            ax.axis("tight")
+            table = ax.table(cells, colLabels=col_labels, rowLabels=row_labels, loc="center", cellColours=colors)
+            table.scale(1.0, 1.5)
+            table_cells = table.get_celld()
+            for i in range(len(col_labels)):
+                table_cells[(0,i)].set_height(4 * table_cells[(0,i)].get_height())
+            self.__figures[f"scenarios-detailed-probs"] = fig
 
     def table_record_probabilities(self):
         team_probs = {team: self.__conference.prob_final_win_count(team) for team in self.__conference.team_names}
@@ -297,7 +357,7 @@ class ConferenceFigures:
         wins.append("Mean")
 
         colors = [[_percent_to_color(percent) for percent in row[:-1]] + ["w"] for row in cells]
-        
+
         title = f"Final Win Count Probabilities for Each Team"
         fig = plt.figure(title, figsize=(15, 7))
         ax = plt.gca()
@@ -308,13 +368,13 @@ class ConferenceFigures:
         table = ax.table(cells, colLabels=wins, rowLabels=sorted_teams, loc="center", cellColours=colors)
         table.scale(1.0, 1.5)
         self.__figures["win-count-probs-table"] = fig
-    
+
     def bars_ccg_probabilities(self):
         teams = sorted(self.__conference.team_names)
         Y = [_rounded_percent(self.__conference.prob_in_ccg(team)) for team in teams]
         fig = _bar_graph(f"{self.__conference_name} Team CCG Probabilities", teams, Y, teams=[(team,) for team in teams], caption="Probability of each team making the CCG")
         self.__figures[self.__conference_name.lower() + "-team-ccg-probabilities"] = fig
-    
+
     def bars_ccg_matchups(self):
         matchups = []
         Y = []
