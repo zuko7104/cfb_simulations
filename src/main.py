@@ -1,6 +1,6 @@
 import scraper
 from sports import outcomes
-from sports.outcomes import win_exactly, win_out, win_out_except_possibly, beat, win_out_except, win_exactly_with, any_outcome
+from sports.outcomes import win_exactly, win_out, win_out_except_possibly, beat, win_out_except, any_outcome, win_at_most
 from sports.outcomes import ScenarioOutcomes
 from simulator import Simulator
 from figures import ConferenceFigures
@@ -35,10 +35,10 @@ def main(iterations: int = 100000, year: int = 2024, conference: ConferenceName 
         ScenarioOutcomes(win_exactly(season, "BYU", 10), win_out_except_possibly(season, "Kansas St", ["Iowa St"]), win_out_except_possibly(season, "Iowa St", ["Kansas St"])),
         ScenarioOutcomes(win_exactly(season, "BYU", 11), win_out(season, "Iowa St")),
         ScenarioOutcomes(win_exactly(season, "BYU", 10), win_out(season, "Iowa St")),
-        ScenarioOutcomes(win_exactly(season, "BYU", 10), win_out(season, "Iowa St"), win_exactly(season, "Kansas St", 10)),
+        ScenarioOutcomes(win_exactly(season, "BYU", 10), win_out(season, "Iowa St"), win_exactly(season, "Kansas St", 9)),
         ScenarioOutcomes(win_exactly(season, "BYU", 11), win_out(season, "Kansas St")),
-        ScenarioOutcomes(win_exactly(season, "BYU", 11), win_out(season, "Kansas St"), win_exactly(season, "Iowa St", 11)),
-        ScenarioOutcomes(win_exactly(season, "BYU", 10), win_out(season, "Kansas St"), win_exactly(season, "Iowa St", 11)),
+        ScenarioOutcomes(win_exactly(season, "BYU", 11), win_out(season, "Kansas St"), win_exactly(season, "Iowa St", 10)),
+        ScenarioOutcomes(win_exactly(season, "BYU", 10), win_out(season, "Kansas St"), win_exactly(season, "Iowa St", 10)),
         ScenarioOutcomes(win_exactly(season, "BYU", 10), win_exactly(season, "Iowa St", 11), win_exactly(season, "Kansas St", 10), beat(season, "Kansas St", "Iowa St")),
         ScenarioOutcomes(win_exactly(season, "BYU", 10), win_exactly(season, "Iowa St", 10), win_exactly(season, "Kansas St", 10)),
         ScenarioOutcomes(win_out(season, "Colorado")),
@@ -62,31 +62,41 @@ def main(iterations: int = 100000, year: int = 2024, conference: ConferenceName 
     figs = ConferenceFigures(conference, simulator.conference_outcomes[conference], simulator.scenarios, simulator.week_outcomes[conference])
 
     if entire_season:
-        figs.all_figures(["BYU", "Iowa St", "Kansas St", "Colorado"], "BYU")
+        figs.all_figures(["BYU", "Iowa St", "Kansas St", "Colorado", "Texas Tech"], "BYU")
+        figs.table_week("Colorado")
+        figs.table_week("Texas Tech")
+        figs.table_week("Iowa St")
+        figs.table_week("Kansas St")
 
     if structured_scenarios:
         opponent_condition_lists = [
             [any_outcome()],
-            [win_exactly(season, "Iowa St", 12),                            win_exactly_with(season, "Kansas St", 10, losses={"Iowa St"}), win_exactly(season, "Colorado", 10)],
-            [win_exactly_with(season, "Iowa St", 11, losses={"Kansas St"}), win_exactly(season, "Kansas St", 11),                          win_exactly(season, "Colorado", 10)],
-            [win_exactly_with(season, "Iowa St", 11, wins={"Kansas St"}),   win_exactly_with(season, "Kansas St", 10, losses={"Iowa St"}), win_exactly(season, "Colorado", 10)],
-            [win_exactly_with(season, "Iowa St", 10, losses={"Kansas St"}), win_exactly(season, "Kansas St", 11),                          win_exactly(season, "Colorado", 10)],
-            [win_exactly_with(season, "Iowa St", 10, wins={"Kansas St"}),   win_exactly_with(season, "Kansas St", 10, losses={"Iowa St"}), win_exactly(season, "Colorado", 10)],
-            [win_exactly_with(season, "Iowa St", 10, losses={"Kansas St"}), win_exactly_with(season, "Kansas St", 10, wins={"Iowa St"}),   win_exactly(season, "Colorado", 10)],
-            [win_exactly(season, "Iowa St", 12),                            win_exactly_with(season, "Kansas St", 10, losses={"Iowa St"}), win_exactly(season, "Colorado", 9)],
-            [win_exactly_with(season, "Iowa St", 11, losses={"Kansas St"}), win_exactly(season, "Kansas St", 11),                          win_exactly(season, "Colorado", 9)],
-            [win_exactly_with(season, "Iowa St", 11, wins={"Kansas St"}),   win_exactly_with(season, "Kansas St", 10, losses={"Iowa St"}), win_exactly(season, "Colorado", 9)],
-            [win_exactly_with(season, "Iowa St", 10, losses={"Kansas St"}), win_exactly(season, "Kansas St", 11),                          win_exactly(season, "Colorado", 9)],
-            [win_exactly_with(season, "Iowa St", 10, wins={"Kansas St"}),   win_exactly_with(season, "Kansas St", 10, losses={"Iowa St"}), win_exactly(season, "Colorado", 9)],
-            [win_exactly_with(season, "Iowa St", 10, losses={"Kansas St"}), win_exactly_with(season, "Kansas St", 10, wins={"Iowa St"}),   win_exactly(season, "Colorado", 9)],
+            [win_out(season, "Iowa St"),                                                                                      win_out(season, "Colorado"), ],
+            [win_exactly(season, "Iowa St", 10, wins={"Kansas St"}),                                                          win_out(season, "Colorado"), ],
+            [win_exactly(season, "Iowa St", 10, losses={"Kansas St"}), win_out(season, "Kansas St"),                          win_out(season, "Colorado"), ],
+            [win_exactly(season, "Iowa St", 10, losses={"Kansas St"}), win_at_most(season, "Kansas St", 9, wins={"Iowa St"}), win_out(season, "Colorado"), ],
+            [win_at_most(season, "Iowa St", 9, losses={"Kansas St"}),  win_out(season, "Kansas St"),                          win_out(season, "Colorado"), ],
+            [win_out(season, "Iowa St"),                                                                                      win_exactly(season, "Colorado", 9, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_exactly(season, "Iowa St", 10, wins={"Kansas St"}),                                                          win_exactly(season, "Colorado", 9, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_out(season, "Iowa St"),                                                                                      win_at_most(season, "Colorado", 8, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_exactly(season, "Iowa St", 10, wins={"Kansas St"}),                                                          win_at_most(season, "Colorado", 8, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_exactly(season, "Iowa St", 10, losses={"Kansas St"}), win_out(season, "Kansas St"),                          win_exactly(season, "Colorado", 9, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_exactly(season, "Iowa St", 10, losses={"Kansas St"}), win_at_most(season, "Kansas St", 9, wins={"Iowa St"}), win_exactly(season, "Colorado", 9, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_at_most(season, "Iowa St", 9, losses={"Kansas St"}),  win_out(season, "Kansas St"),                          win_exactly(season, "Colorado", 9, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_at_most(season, "Iowa St", 9, losses={"Kansas St"}),  win_at_most(season, "Kansas St", 9, wins={"Iowa St"}), win_exactly(season, "Colorado", 9, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_exactly(season, "Iowa St", 10, losses={"Kansas St"}), win_out(season, "Kansas St"),                          win_at_most(season, "Colorado", 8, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_exactly(season, "Iowa St", 10, losses={"Kansas St"}), win_at_most(season, "Kansas St", 9, wins={"Iowa St"}), win_at_most(season, "Colorado", 8, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_at_most(season, "Iowa St", 9, losses={"Kansas St"}),  win_out(season, "Kansas St"),                          win_at_most(season, "Colorado", 8, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
+            [win_at_most(season, "Iowa St", 9, losses={"Kansas St"}),  win_at_most(season, "Kansas St", 9, wins={"Iowa St"}), win_at_most(season, "Colorado", 8, losses={"Texas Tech"}), win_out(season, "Texas Tech"), ],
         ]
         byu_conditions = [
             any_outcome(),
+            win_exactly(season, "BYU", 12),
             win_exactly(season, "BYU", 11),
             win_exactly(season, "BYU", 10),
         ]
         byu = season.team("BYU")
-        for losses in sorted(list(itertools.combinations(byu.remaining_opponents, 2)) + [(opponent,) for opponent in byu.remaining_opponents], key=lambda ls: f"{len(ls)}{','.join(ls)}"):
+        for losses in sorted(list(itertools.combinations(byu.remaining_opponents, 2)), key=lambda ls: f"{len(ls)}{','.join(ls)}"):
             byu_conditions.append(win_out_except(season, "BYU", set(losses)))
 
         byu_conditions_count = len(byu_conditions)
@@ -109,10 +119,13 @@ def main(iterations: int = 100000, year: int = 2024, conference: ConferenceName 
             for indices, scenario in zip(indices_list, executor.map(simulate_scenario, *args)):
                 i, j = indices
                 conditions_table[i][j] = scenario
-        figs.table_structured_scenarios("BYU", conditions_table, conditions_rows, conditions_columns)
-        figs.table_structured_scenarios("Iowa St", conditions_table, conditions_rows, conditions_columns, False)
-        figs.table_structured_scenarios("Kansas St", conditions_table, conditions_rows, conditions_columns, False)
-        figs.table_structured_scenarios("Colorado", conditions_table, conditions_rows, conditions_columns, False)
+        # figs.table_structured_scenarios("BYU", conditions_table, conditions_rows, conditions_columns)
+        figs.table_structured_scenarios("BYU", [row[:6] for row in conditions_table], conditions_rows, conditions_columns[:6])
+        figs.table_structured_scenarios("BYU", [row[6:12] for row in conditions_table], conditions_rows, conditions_columns[6:12])
+        figs.table_structured_scenarios("BYU", [row[12:] for row in conditions_table], conditions_rows, conditions_columns[12:])
+        # figs.table_structured_scenarios("Iowa St", conditions_table, conditions_rows, conditions_columns, False)
+        # figs.table_structured_scenarios("Kansas St", conditions_table, conditions_rows, conditions_columns, False)
+        # figs.table_structured_scenarios("Colorado", conditions_table, conditions_rows, conditions_columns, False)
 
     if save_figures:
         os.mkdir(simulation_dir)

@@ -273,18 +273,18 @@ class TeamSnapshot:
         return self.played_opponents.issuperset(teams)
 
     def plays_any(self, teams: set[TeamName]) -> bool:
-        return len(self.opponents.intersection(teams)) > 0
+        return bool(self.opponents & teams)
 
     def filtered_record(self, teams: set[TeamName]) -> tuple[int, int, int]:
         # TODO This is only for 2024
         if self.name == "Kansas St":
-            teams = teams.difference({"Arizona"})
+            teams = teams - {"Arizona"}
         elif self.name == "Arizona":
-            teams = teams.difference({"Kansas St"})
+            teams = teams - {"Kansas St"}
         elif self.name == "Utah":
-            teams = teams.difference({"Baylor"})
+            teams = teams - {"Baylor"}
         elif self.name == "Baylor":
-            teams = teams.difference({"Utah"})
+            teams = teams - {"Utah"}
 
         wins = 0
         losses = 0
@@ -319,9 +319,10 @@ class TeamSnapshot:
 
     def probability_of(
             self,
-            total_wins: int,
+            total_wins: int | None = None,
             wins_against: set[TeamName] = set(),
-            losses_against: set[TeamName] = set()
+            losses_against: set[TeamName] = set(),
+            max_wins: int | None = None,
         ) -> tuple[float, dict[TeamPair, float]]:
         prob: float = 1.0
         factors = {}
@@ -339,29 +340,51 @@ class TeamSnapshot:
             else:
                 remaining_games.append(game)
 
-        remaining_losses = len(self.games) - total_wins - len(self.losses_against) - len(losses_against)
-        if remaining_losses <= 0:
-            for game in remaining_games:
-                opponent = game.opponent(self.name)
-                p = game.win_probability(self.name)
-                factors[tuple(sorted([self.name, opponent]))] = p
-                prob *= p
-        elif remaining_losses == len(remaining_games):
-            for game in remaining_games:
-                opponent = game.opponent(self.name)
-                p = game.win_probability(opponent)
-                factors[tuple(sorted([self.name, opponent]))] = p
-                prob *= p
-        else:
-            win_probabilities = [game.win_probability(self.name) for game in remaining_games]
-            loss_combos = set(combinations(list(range(len(remaining_games))), remaining_losses))
-            combo_probabilities = []
-            for loss_combo in loss_combos:
-                p = 1.0
-                for i, win_probability in enumerate(win_probabilities):
-                    p *= (1 - win_probability) if i in loss_combo else win_probability
-                combo_probabilities.append(p)
-            prob *= sum(combo_probabilities)
+        if total_wins is not None:
+            remaining_losses = len(self.games) - total_wins - len(self.losses_against) - len(losses_against)
+            if remaining_losses <= 0:
+                for game in remaining_games:
+                    opponent = game.opponent(self.name)
+                    p = game.win_probability(self.name)
+                    factors[tuple(sorted([self.name, opponent]))] = p
+                    prob *= p
+            elif remaining_losses == len(remaining_games):
+                for game in remaining_games:
+                    opponent = game.opponent(self.name)
+                    p = game.win_probability(opponent)
+                    factors[tuple(sorted([self.name, opponent]))] = p
+                    prob *= p
+            else:
+                win_probabilities = [game.win_probability(self.name) for game in remaining_games]
+                loss_combos = set(combinations(list(range(len(remaining_games))), remaining_losses))
+                combo_probabilities = []
+                for loss_combo in loss_combos:
+                    p = 1.0
+                    for i, win_probability in enumerate(win_probabilities):
+                        p *= (1 - win_probability) if i in loss_combo else win_probability
+                    combo_probabilities.append(p)
+                prob *= sum(combo_probabilities)
+        elif max_wins is not None:
+            max_remaining_wins = max_wins - self.wins - len(wins_against)
+            # max_remaining_losses = len(self.games) - max_wins - len(self.losses_against) - len(losses_against)
+            if max_remaining_wins <= 0:
+                for game in remaining_games:
+                    opponent = game.opponent(self.name)
+                    p = game.win_probability(self.name)
+                    factors[tuple(sorted([self.name, opponent]))] = p
+                    prob *= p
+            else:
+                win_probabilities = [game.win_probability(self.name) for game in remaining_games]
+                combo_probabilities = []
+                for remaining_wins in range(max_remaining_wins + 1):
+                    remaining_losses = len(remaining_games) - remaining_wins
+                    loss_combos = set(combinations(list(range(len(remaining_games))), remaining_losses))
+                    for loss_combo in loss_combos:
+                        p = 1.0
+                        for i, win_probability in enumerate(win_probabilities):
+                            p *= (1 - win_probability) if i in loss_combo else win_probability
+                        combo_probabilities.append(p)
+                prob *= sum(combo_probabilities)
         return prob, factors
 
     def roll(
@@ -369,30 +392,31 @@ class TeamSnapshot:
             roller: UniformRoller,
             *,
             force_total_wins: int | None = None,
-            force_future_loss_count: int | None = None,
             force_wins_against: set[TeamName] = set(),
-            force_losses_against: set[TeamName] = set()
+            force_losses_against: set[TeamName] = set(),
+            force_max_wins: int | None = None,
         ) -> "TeamSnapshot":
+        # TODO min wins
         binary_roller = lambda p: roller() <= p
 
-        if force_total_wins:
-            force_future_loss_count = len(self.games) - force_total_wins - len(self.losses_against)
-        # print(self.name, "future losses:", force_future_loss_count)
+        if force_total_wins is not None and force_max_wins is not None:
+            raise ValueError(f"{self.name} can't specify total wins {force_total_wins} and max wins {force_max_wins}")
 
         if (force_wins_against & force_losses_against) or not force_wins_against.issubset(self.remaining_opponents) or not force_losses_against.issubset(self.remaining_opponents):
             raise ValueError(f"{self.name} cannot beat {force_wins_against} and lose to {force_losses_against}; {self.remaining_opponents}")
-        # TODO min and max wins
 
-        if force_future_loss_count is None:
-            return self.__clone_with_games([game.roll(binary_roller) for game in self.games])
-        if force_future_loss_count < 0 or force_future_loss_count > (len(self.remaining_games) - len(force_wins_against)):
-            raise ValueError(f"{self.name} cannot lose {force_future_loss_count} games if win {force_wins_against}")
-        if len(force_losses_against) > force_future_loss_count:
-            raise ValueError(f"{self.name} forced to {force_future_loss_count} future losses but specifically lose to {force_losses_against}")
-        if force_future_loss_count == 0:
-            return self.__clone_with_games([game.force_outcome_if_not_over(self.name, True) for game in self.games])
-        if force_future_loss_count == len(self.remaining_games):
-            return self.__clone_with_games([game.force_outcome_if_not_over(self.name, False) for game in self.games])
+        if force_total_wins:
+            if force_total_wins < self.wins:
+                raise ValueError(f"{self.name} cannot win {force_total_wins} when already won {self.wins}")
+            if force_total_wins - self.wins > len(self.remaining_games) - len(force_losses_against):
+                raise ValueError(f"{self.name} cannot win {force_total_wins} given {self.wins} wins and losses to {force_losses_against}")
+            if force_total_wins < self.wins + len(force_wins_against):
+                raise ValueError(f"{self.name} cannot win {force_total_wins} given {self.wins} wins and wins over {force_wins_against}")
+            force_future_loss_count = len(self.games) - force_total_wins - len(self.losses_against)
+            if force_future_loss_count == 0:
+                return self.__clone_with_games([game.force_outcome_if_not_over(self.name, True) for game in self.games])
+            if force_future_loss_count == len(self.remaining_games):
+                return self.__clone_with_games([game.force_outcome_if_not_over(self.name, False) for game in self.games])
 
         games = [game for game in self.games if game.is_over]
 
@@ -411,10 +435,22 @@ class TeamSnapshot:
             else:
                 remaining_games.append(game)
 
-        remaining_losses = force_future_loss_count - len(force_losses_against)
+        if force_total_wins is None and force_max_wins is None:
+            games += [game.roll(binary_roller) for game in remaining_games]
+            return self.__clone_with_games(games)
 
         win_probabilities = [game.win_probability(self.name) for game in remaining_games]
-        loss_combos = set(combinations(list(range(len(remaining_games))), remaining_losses))
+        if force_total_wins is not None:
+            force_future_loss_count = len(self.games) - force_total_wins - len(self.losses_against)
+            remaining_losses = force_future_loss_count - len(force_losses_against)
+            loss_combos = list(combinations(list(range(len(remaining_games))), remaining_losses))
+        else:
+            assert force_max_wins is not None
+            max_remaining_wins = force_max_wins - self.wins - len(force_wins_against)
+            loss_combos = []
+            for remaining_wins in range(max_remaining_wins + 1):
+                remaining_losses = len(remaining_games) - remaining_wins
+                loss_combos += list(combinations(list(range(len(remaining_games))), remaining_losses))
         combo_probabilities = []
         for loss_combo in loss_combos:
             p = 1.0

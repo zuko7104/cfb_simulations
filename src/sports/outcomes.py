@@ -190,7 +190,7 @@ class ScenarioCondition:
         return self.__probability_factors
 
 
-def _win_exactly_with_condition(season: SeasonSnapshot, team_name: TeamName, win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set()) -> bool:
+def _win_exactly_condition(season: SeasonSnapshot, team_name: TeamName, win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set()) -> bool:
     team = season.team(team_name)
     if wins or losses:
         return team.wins == win_count and team.wins_against.issuperset(wins) and team.losses_against.issuperset(losses)
@@ -198,25 +198,19 @@ def _win_exactly_with_condition(season: SeasonSnapshot, team_name: TeamName, win
         return team.wins == win_count
 
 
-def _win_exactly_with_forcer(roller: UniformRoller, season: SeasonSnapshot, team_name: TeamName, win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set()) -> Iterable[Game]:
+def _win_exactly_forcer(roller: UniformRoller, season: SeasonSnapshot, team_name: TeamName, win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set()) -> Iterable[Game]:
     return season.team(team_name).roll(roller, force_total_wins=win_count, force_wins_against=wins, force_losses_against=losses).games
 
 
-def win_exactly(season: SeasonSnapshot, team: TeamName, wins: int) -> ScenarioCondition:
-    return ScenarioCondition(
-        _win_exactly_with_condition, _win_exactly_with_forcer, [team, wins],
-        f"{_short_name(team)} {wins}-{12-wins}",
-        *season.team(team).probability_of(wins)
-    )
-
-
-def win_exactly_with(season: SeasonSnapshot, team_name: TeamName, win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set(), description: str | None = None):
+def win_exactly(season: SeasonSnapshot, team_name: TeamName, win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set(), description: str | None = None):
     if not description:
         description = f"{_short_name(team_name)} {win_count}-{12-win_count}"
         if wins:
-            description += f"\n{_short_name(team_name)} beat {', '.join(map(_short_name, wins))}"
+            description += f", beat {', '.join(map(_short_name, wins))}"
+        if losses:
+            description += f", lost to {', '.join(map(_short_name, losses))}"
     return ScenarioCondition(
-        _win_exactly_with_condition, _win_exactly_with_forcer, [team_name, win_count, wins, losses],
+        _win_exactly_condition, _win_exactly_forcer, [team_name, win_count, wins, losses],
         # description or f"{_short_name(team_name)} {win_count}-{12-win_count}\n({('beat ' + ', '.join(map(_short_name, wins))) if wins else ''}{'; ' if wins and losses else ''}{('lost to ' + ', '.join(map(_short_name, losses))) if losses else ''})",
         description,
         *season.team(team_name).probability_of(win_count, wins, losses),
@@ -231,12 +225,31 @@ def win_exactly_with(season: SeasonSnapshot, team_name: TeamName, win_count: int
 #     )
 
 
-# def win_at_most(team: TeamName, wins: int) -> ScenarioCondition:
-#     return ScenarioCondition(
-#         lambda season: season.team(team).wins <= wins,
-#         lambda roller, season: season.team(team).roll(roller, force_max_wins=wins).games,
-#         f"{_short_name(team)} {wins}-{12-wins} or worse"
-#     )
+def _win_at_most_condition(season: SeasonSnapshot, team_name: TeamName, max_win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set()) -> bool:
+    team = season.team(team_name)
+    if wins or losses:
+        return team.wins <= max_win_count and team.wins_against.issuperset(wins) and team.losses_against.issuperset(losses)
+    else:
+        return team.wins <= max_win_count
+
+
+def _win_at_most_forcer(roller: UniformRoller, season: SeasonSnapshot, team_name: TeamName, max_win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set()) -> bool:
+    return season.team(team_name).roll(roller, force_max_wins=max_win_count, force_wins_against=wins, force_losses_against=losses).games
+
+
+def win_at_most(season: SeasonSnapshot, team_name: TeamName, max_win_count: int, wins: set[TeamName] = set(), losses: set[TeamName] = set()) -> ScenarioCondition:
+    description = f"{_short_name(team_name)} {max_win_count}-{12-max_win_count} or worse"
+    if wins:
+        description += f", beat {', '.join(map(_short_name, wins))}"
+    if losses:
+        description += f", lost to {', '.join(map(_short_name, losses))}"
+    return ScenarioCondition(
+        _win_at_most_condition,
+        _win_at_most_forcer,
+        [team_name, max_win_count, wins, losses],
+        description,
+        *season.team(team_name).probability_of(max_wins = max_win_count, wins_against=wins, losses_against=losses)
+    )
 
 
 def win_out(season: SeasonSnapshot, team: TeamName) -> ScenarioCondition:
@@ -295,7 +308,7 @@ def win_out_except(season: SeasonSnapshot, team_name: TeamName, losses: set[Team
     team = season.team(team_name)
     # expected_losses = set(losses) | original_team.losses_against
     win_count = team.wins + len(team.remaining_games) - len(losses)
-    return win_exactly_with(season, team_name, win_count, losses=losses, description=f"{_short_name(team_name)} lose to {', '.join(map(_short_name, losses))}")
+    return win_exactly(season, team_name, win_count, losses=losses, description=f"{_short_name(team_name)} lose to {', '.join(map(_short_name, losses))}")
     # return ScenarioCondition(
     #     _win_exactly_with_condition, _win_exactly_with_forcer, [team_name, win_count, set(), set(losses)],
         # lambda season: season.team(team_name).losses_against == expected_losses,

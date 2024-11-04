@@ -16,10 +16,10 @@ def head_to_head(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], ti
     del all_team_names, all_teams, standings
     names = {team.name for team in tied_teams}
     for tied_team in tied_teams:
-        if tied_team.has_played(names.difference([tied_team.name])):
-            if tied_team.filtered_record(names.difference([tied_team.name]))[0] == len(names) - 1:
-                return [{tied_team}, tied_teams.difference({tied_team})]
-    if not all(team.has_played(names.difference({team.name})) for team in tied_teams):
+        if tied_team.has_played(names - {tied_team.name}):
+            if tied_team.filtered_record(names - {tied_team.name})[0] == len(names) - 1:
+                return [{tied_team}, tied_teams - {tied_team}]
+    if not all(team.has_played(names - {team.name}) for team in tied_teams):
         return [tied_teams]
     return sorted_with_ties(tied_teams, key=lambda team: team.filtered_win_percentage(names), reverse=True)
 
@@ -27,11 +27,11 @@ def _all_common_opponents(all_team_names: set[TeamName], teams: set[TeamSnapshot
     common = set(all_team_names)
     # TODO This is only for 2024
     for team in teams:
-        common.intersection_update(team.played_opponents)
+        common &= team.played_opponents
     if {"Arizona", "Kansas St"} & {team.name for team in teams}:
-        common.difference_update({"Arizona", "Kansas St"})
+        common -= {"Arizona", "Kansas St"}
     if {"Baylor", "Utah"} & {team.name for team in teams}:
-        common.difference_update({"Baylor", "Utah"})
+        common -= {"Baylor", "Utah"}
     return common
 
 def against_highest_common_opponent(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], tied_teams: set[TeamSnapshot], standings: list[set[TeamSnapshot]]) -> list[set[TeamSnapshot]]:
@@ -53,23 +53,21 @@ def against_highest_common_opponent(all_team_names: set[TeamName], all_teams: se
 def against_all_common_opponents(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], tied_teams: set[TeamSnapshot], standings: list[set[TeamSnapshot]]) -> list[set[TeamSnapshot]]:
     del all_teams, standings
     all_common_opponents = _all_common_opponents(all_team_names, tied_teams)
-    for team in tied_teams:
-        all_common_opponents.intersection_update(team.played_opponents)
     return sorted_with_ties(tied_teams, key=lambda team: team.filtered_win_percentage(all_common_opponents), reverse=True)
 
 def strength_of_conference_schedule(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], tied_teams: set[TeamSnapshot], standings: list[set[TeamSnapshot]]) -> list[set[TeamSnapshot]]:
     del standings
     def conf_sos(team: TeamSnapshot) -> float:
-        conference_opponents = all_team_names.intersection(team.played_opponents)
+        conference_opponents = all_team_names & team.played_opponents
         # TODO this is only for the 2024 season
         if team.name == "Kansas St":
-            conference_opponents = conference_opponents.difference({"Arizona"})
+            conference_opponents -= {"Arizona"}
         elif team.name == "Arizona":
-            conference_opponents = conference_opponents.difference({"Kansas St"})
+            conference_opponents -= {"Kansas St"}
         elif team.name == "Utah":
-            conference_opponents = conference_opponents.difference({"Baylor"})
+            conference_opponents -= {"Baylor"}
         elif team.name == "Baylor":
-            conference_opponents = conference_opponents.difference({"Utah"})
+            conference_opponents -= {"Utah"}
 
         wins = 0
         played = 0
@@ -98,18 +96,18 @@ def coin_toss(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], tied_
     place = 0
     for tier in standings:
         place += 1
-        if tied_teams.intersection(tier):
+        if tied_teams & tier:
             break
     if place > 1 or len(tied_teams) > 2:
         print(f"WARN: coin toss decided winner of {[team.name for team in tied_teams]} for {place}: {[team.losses_against for team in tied_teams]}, {[team.name for team in standings[0]]} is first place")
-        # for tier in standings:
-        #     print("[")
-        #     for team in tier:
-        #         wins = team.filtered_record(all_team_names)[0]
-        #         print("   ", team.name, wins, "wins:", team.wins_against & all_team_names, "losses:", team.losses_against & all_team_names)
-        #     print("],")
+        for tier in standings:
+            print("[")
+            for team in tier:
+                wins = team.filtered_record(all_team_names)[0]
+                print("   ", team.name, wins, "wins:", team.wins_against & all_team_names, "losses:", team.losses_against & all_team_names)
+            print("],")
     winner = random.choice(list(tied_teams))
-    return [{winner}, tied_teams.difference({winner})]
+    return [{winner}, tied_teams - {winner}]
 
 def big12_championship_seeder(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], standings: list[set[TeamSnapshot]]) -> tuple[TeamName, TeamName]:
     tiebreakers = [head_to_head, against_all_common_opponents, against_highest_common_opponent, strength_of_conference_schedule, total_wins_in_12_game_season, coin_toss]
