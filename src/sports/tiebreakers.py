@@ -98,14 +98,14 @@ def coin_toss(all_team_names: set[TeamName], all_teams: set[TeamSnapshot], tied_
         place += 1
         if tied_teams & tier:
             break
-    if place > 1 or len(tied_teams) > 2:
-        print(f"WARN: coin toss decided winner of {[team.name for team in tied_teams]} for {place}: {[team.losses_against for team in tied_teams]}, {[team.name for team in standings[0]]} is first place")
-        for tier in standings:
-            print("[")
-            for team in tier:
-                wins = team.filtered_record(all_team_names)[0]
-                print("   ", team.name, wins, "wins:", team.wins_against & all_team_names, "losses:", team.losses_against & all_team_names)
-            print("],")
+    # if place > 1 or len(tied_teams) > 2:
+        # print(f"WARN: coin toss decided winner of {[team.name for team in tied_teams]} for {place}: {[team.losses_against for team in tied_teams]}, {[team.name for team in standings[0]]} is first place")
+        # for tier in standings:
+        #     print("[")
+        #     for team in tier:
+        #         wins = team.filtered_record(all_team_names)[0]
+        #         print("   ", team.name, wins, "wins:", team.wins_against & all_team_names, "losses:", team.losses_against & all_team_names)
+        #     print("],")
     winner = random.choice(list(tied_teams))
     return [{winner}, tied_teams - {winner}]
 

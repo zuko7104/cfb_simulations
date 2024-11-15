@@ -303,13 +303,13 @@ class ConferenceFigures:
             table.scale(1.0, 1.5)
             table_cells = table.get_celld()
             for j in range(len(col_labels)):
-                table_cells[(0,j)].set_height(3 * table_cells[(0,j)].get_height())
+                table_cells[(0,j)].set_height(4 * table_cells[(0,j)].get_height())
             self.__figures[f"scenarios-table-{i}"] = fig
 
     def table_structured_scenarios(self, ccg_target: TeamName, table_data: list[list[ScenarioOutcomes]], row_labels: list[str], col_labels: list[str], show_scenario_probs: bool = True):
         # print(ccg_target, len(table_data), len(row_labels), len(col_labels))
         # print([len(row) for row in table_data])
-        cells = [[_rounded_percent_str(scenario.prob_in_ccg(ccg_target)) for scenario in row] for row in table_data]
+        cells = [[_rounded_percent_str(scenario.prob_in_ccg(ccg_target) if scenario else None) for scenario in row] for row in table_data]
         colors = [[_percent_to_color(percent) for percent in row] for row in cells]
 
         title = f"{ccg_target} CCG Probability in Various Scenarios"
@@ -331,7 +331,7 @@ class ConferenceFigures:
                 break
 
         if show_scenario_probs:
-            cells = [[_rounded_percent_str(scenario.probability, 2) for scenario in row] for row in table_data]
+            cells = [[_rounded_percent_str(scenario.probability if scenario else None, 2) for scenario in row] for row in table_data]
             colors = [[_percent_to_color(percent) for percent in row] for row in cells]
 
             title = f"Scenario Probabilities"

@@ -62,10 +62,22 @@ class Simulator:
     def simulate_scenario(self, scenario: ScenarioOutcomes, iterations: int):
         # print(f"Running {iterations} simulations of scenario {scenario.description(", ")}")
         i = 0
+        warned = False
+        errors = 0
         while i < iterations:
             # if i % 1000 == 0:
             #     print("completed", i)
-            rolled_season = self.__season.roll(random.random, game_forcers=scenario.game_forcers)
+            try:
+                rolled_season = self.__season.roll(random.random, game_forcers=scenario.game_forcers)
+            except ValueError as e:
+                errors += 1
+                if not warned:
+                    print(f"WARN: {scenario.description(", ")} produced invalid result on iteration {i}")
+                    warned = True
+                if errors >= 100:
+                    print(f"ERROR: {scenario.description(", ")} produced 100 consecutive invalid results")
+                    raise
+                continue
             ccg_teams: dict[ConferenceName, TeamPair] = {}
             for conference in rolled_season.conferences:
                 rolled_conference = rolled_season.conference(conference.name)
@@ -74,15 +86,11 @@ class Simulator:
             ccg_games = tuple(item[1] for item in sorted(ccg_teams.items(), key=lambda item: item[0]))
             scenario += (rolled_season, ccg_games)
 
-            if scenario.total_seasons <= i:
-                print(f"WARN: {scenario.description(", ")} produced invalid result on iteration {i}")
-                raise(ValueError())
-                continue
-
+            errors = 0
             i += 1
 
         return scenario
 
     def shallow_clone(self) -> "Simulator":
         week_outcomes = {conference: week.shallow_clone() for conference, week in self.week_outcomes.items()}
-        return Simulator(self.__season, self.scenarios, week_outcomes=self.week_outcomes)
+        return Simulator(self.__season, self.scenarios, week_outcomes=week_outcomes)
