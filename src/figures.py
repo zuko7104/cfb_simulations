@@ -97,10 +97,10 @@ class ConferenceFigures:
         self.table_in_ccg_prob_given_total_wins()
         self.table_record_probabilities()
         self.table_scenarios(interesting_teams)
-        self.table_in_ccg_prob_given_specific_losses(interesting_teams)
-        if ccg_target:
-            self.table_in_ccg_prob_given_total_wins(ccg_target)
-            self.table_in_ccg_prob_given_specific_losses(interesting_teams, ccg_target)
+        # self.table_in_ccg_prob_given_specific_losses(interesting_teams)
+        # if ccg_target:
+            # self.table_in_ccg_prob_given_total_wins(ccg_target)
+            # self.table_in_ccg_prob_given_specific_losses(interesting_teams, ccg_target)
 
     def table_week(self, ccg_target: TeamName):
         starting_ccg_prob = self.__conference.prob_in_ccg(ccg_target)
@@ -162,13 +162,16 @@ class ConferenceFigures:
                             yield (winner,)
             return list(gen_winners(matchups, number))
 
-        print("Possible weekly outcomes")
+        # print("Possible weekly outcomes")
+        print(f"{ccg_target} ways to clinch CCG:")
         for i in range(1, len(self.__week.games) + 1):
             for winners in winner_combinations(self.__week.games, i):
                 ccg_prob = self.__week.prob_in_ccg_given_winners(set(winners), ccg_target)
                 prob = self.__week.prob_of_winners(set(winners))
                 score = (ccg_prob - starting_ccg_prob) * prob
-                print(f"{', '.join(pad(winner) for winner in sorted(winners, key=index_lookup))}, P(winners): {_rounded_percent_str(prob):>5} P(CCG): {_rounded_percent_str(ccg_prob):>5} score: {_rounded_percent(score)}")
+                if ccg_prob == 1.0:
+                    print(f"Winners: {', '.join(pad(winner) for winner in sorted(winners, key=index_lookup))}, probability: {prob}")
+                # print(f"{', '.join(pad(winner) for winner in sorted(winners, key=index_lookup))}, P(winners): {_rounded_percent_str(prob):>5} P(CCG): {_rounded_percent_str(ccg_prob):>5} score: {_rounded_percent(score)}")
                 if ccg_prob > best_ccg_prob:
                     best_winners = winners
                     best_ccg_prob = ccg_prob
@@ -309,48 +312,66 @@ class ConferenceFigures:
     def table_structured_scenarios(self, ccg_target: TeamName, table_data: list[list[ScenarioOutcomes]], row_labels: list[str], col_labels: list[str], show_scenario_probs: bool = True):
         # print(ccg_target, len(table_data), len(row_labels), len(col_labels))
         # print([len(row) for row in table_data])
-        cells = [[_rounded_percent_str(scenario.prob_in_ccg(ccg_target) if scenario else None) for scenario in row] for row in table_data]
-        colors = [[_percent_to_color(percent) for percent in row] for row in cells]
+        max_group_size = 6
+        scenario_groups = []
+        group_count = int(math.ceil(len(col_labels) / max_group_size))
+        min_group_size = len(col_labels) // group_count
+        leftover = len(col_labels) % group_count
+        start = 0
+        end = 0
+        for i in range(group_count):
+            start = end
+            end += min_group_size
+            if i < leftover:
+                end += 1
+            if i == group_count - 1:
+                end = len(col_labels)
+            scenario_groups.append((start,end))
 
-        title = f"{ccg_target} CCG Probability in Various Scenarios"
-        fig = plt.figure(figsize=(20, 7))
-        ax = plt.gca()
-        fig.patch.set_visible(False)
-        ax.set_title(title)
-        ax.axis("off")
-        ax.axis("tight")
-        table = ax.table(cells, colLabels=col_labels, rowLabels=row_labels, loc="center", cellColours=colors)
-        table.scale(1.0, 1.5)
-        table_cells = table.get_celld()
-        for i in range(len(col_labels)):
-            table_cells[(0,i)].set_height(4 * table_cells[(0,i)].get_height())
-        for i in range(100000):
-            name = f"scenarios-detailed-{ccg_target}-ccg-probs-{i}"
-            if name not in self.__figures:
-                self.__figures[name] = fig
-                break
-
-        if show_scenario_probs:
-            cells = [[_rounded_percent_str(scenario.probability if scenario else None, 2) for scenario in row] for row in table_data]
+        for i, bounds in enumerate(scenario_groups):
+            start, end = bounds
+            cells = [[_rounded_percent_str(scenario.prob_in_ccg(ccg_target) if scenario else None) for scenario in row[start:end]] for row in table_data]
             colors = [[_percent_to_color(percent) for percent in row] for row in cells]
 
-            title = f"Scenario Probabilities"
-            fig = plt.figure(figsize=(20, 7))
+            title = f"{ccg_target} CCG Probability in Various Scenarios {i+1}"
+            fig = plt.figure(title, figsize=(20, 7))
             ax = plt.gca()
             fig.patch.set_visible(False)
             ax.set_title(title)
             ax.axis("off")
             ax.axis("tight")
-            table = ax.table(cells, colLabels=col_labels, rowLabels=row_labels, loc="center", cellColours=colors)
+            table = ax.table(cells, colLabels=col_labels[start:end], rowLabels=row_labels, loc="center", cellColours=colors)
             table.scale(1.0, 1.5)
             table_cells = table.get_celld()
-            for i in range(len(col_labels)):
+            for i in range(len(col_labels[start:end])):
                 table_cells[(0,i)].set_height(4 * table_cells[(0,i)].get_height())
             for i in range(100000):
-                name = f"scenarios-detailed-probs-{i}"
+                name = f"scenarios-detailed-{ccg_target}-ccg-probs-{i}"
                 if name not in self.__figures:
                     self.__figures[name] = fig
                     break
+
+            if show_scenario_probs:
+                cells = [[_rounded_percent_str(scenario.probability if scenario else None, 2) for scenario in row[start:end]] for row in table_data]
+                colors = [[_percent_to_color(percent) for percent in row] for row in cells]
+
+                title = f"Scenario Probabilities {i+1}"
+                fig = plt.figure(title, figsize=(20, 7))
+                ax = plt.gca()
+                fig.patch.set_visible(False)
+                ax.set_title(title)
+                ax.axis("off")
+                ax.axis("tight")
+                table = ax.table(cells, colLabels=col_labels[start:end], rowLabels=row_labels, loc="center", cellColours=colors)
+                table.scale(1.0, 1.5)
+                table_cells = table.get_celld()
+                for i in range(len(col_labels[start:end])):
+                    table_cells[(0,i)].set_height(4 * table_cells[(0,i)].get_height())
+                for i in range(100000):
+                    name = f"scenarios-detailed-probs-{i}"
+                    if name not in self.__figures:
+                        self.__figures[name] = fig
+                        break
 
     def table_record_probabilities(self):
         team_probs = {team: self.__conference.prob_final_win_count(team) for team in self.__conference.team_names}
