@@ -402,10 +402,6 @@ class ConferenceFigures:
                     if matchup:
                         shortened_winners_to_ccg_matchups[winners] = (matchup, self.__week.prob_of_winners(set(winners)))
 
-        # print("CCG Outcomes")
-        # for winners, (matchup, _) in shortened_winners_to_ccg_matchups.items():
-        #     print("  " + ", ".join(winners) + ": " + " vs ".join(matchup))
-
         cells = []
         for winners, (matchup, prob) in sorted(shortened_winners_to_ccg_matchups.items(), key=lambda item: item[1][1], reverse=True):
             row = []
@@ -420,7 +416,7 @@ class ConferenceFigures:
             row.append(" vs ".join(matchup))
             cells.append(row)
 
-        cells = cells[:6]
+        cells = cells[:7]
 
         colors = [["w"] * (len(row) - 2) + [_percent_to_color(row[-2])] + ["w"] for row in cells]
         col_labels = ["\nat ".join(game) for game in ordered_games] + ["Probability", "CCG Matchup"]
@@ -444,8 +440,8 @@ class ConferenceFigures:
                 team = cell.get_text().get_text()
                 if team == "*":
                     continue
-                logo = _get_team_logo(team)
-                # logo = _get_team_logo("BYU")
+                # logo = _get_team_logo(team)
+                logo = _get_team_logo("BYU")
                 imagebox = OffsetImage(logo, zoom=row_height / max(logo.shape))
                 xy = (table_box.x0 + (j + 0.5) * col_width - 965, -table_box.y0 - (i + 0.5) * row_height + 477)
                 ab = AnnotationBbox(imagebox, xy=(0, 0), xybox=xy, boxcoords="offset points", pad=0, frameon=False)
