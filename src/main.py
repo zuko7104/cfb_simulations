@@ -72,10 +72,11 @@ def main(iterations: int = 100000, year: int = 2024, conference: ConferenceName 
     figs = ConferenceFigures(conference, simulator.conference_outcomes[conference], simulator.scenarios, simulator.week_outcomes[conference])
 
     if entire_season:
-        figs.all_figures(["BYU", "Colorado", "Iowa St", "Arizona St"], "BYU")
-        figs.table_week("Colorado")
-        figs.table_week("Iowa St")
-        figs.table_week("Arizona St")
+        # figs.all_figures(["BYU", "Colorado", "Iowa St", "Arizona St"], "BYU")
+        # figs.table_week("Colorado")
+        # figs.table_week("Iowa St")
+        # figs.table_week("Arizona St")
+        figs.table_week_ccg_outcomes(["BYU", "Colorado", "Iowa St", "Arizona St"])
 
     if structured_scenarios:
         opponent_condition_lists = [

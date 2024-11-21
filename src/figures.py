@@ -74,6 +74,20 @@ def _bar_graph(
         fig.text(0.5, 0.05, caption, ha="center", fontsize=10)
     return fig
 
+def _winner_combinations(matchups: list[TeamPair], number: int) -> list[TeamNames]:
+    if number > len(matchups):
+        raise ValueError()
+    def gen_winners(remaining_matchups: list[TeamPair], remaining_winners: int):
+        for i in range(len(remaining_matchups) - remaining_winners + 1):
+            if remaining_winners > 1:
+                for future_winners in gen_winners(remaining_matchups[i+1:], remaining_winners - 1):
+                    for winner in remaining_matchups[i]:
+                        yield (winner, *future_winners)
+            else:
+                for winner in remaining_matchups[i]:
+                    yield (winner,)
+    return list(gen_winners(matchups, number))
+
 class ConferenceFigures:
     def __init__(self, conference_name: ConferenceName, conference_outcomes: ConferenceSeasonOutcomes, scenarios: list[ScenarioOutcomes], week_outcomes: WeekOutcomes):
         self.__conference_name = conference_name
@@ -84,7 +98,7 @@ class ConferenceFigures:
 
     def save(self, path_prefix: str = ""):
         for path, fig in self.__figures.items():
-            fig.savefig(path_prefix + path + ".png")
+            fig.savefig(path_prefix + path + ".png", bbox_inches="tight")
 
     def show(self):
         plt.show()
@@ -148,24 +162,11 @@ class ConferenceFigures:
         def pad(s: str) -> str:
             return f"{s:11}"
 
-        def winner_combinations(matchups: list[TeamPair], number: int) -> list[TeamNames]:
-            if number > len(matchups):
-                raise ValueError()
-            def gen_winners(remaining_matchups: list[TeamPair], remaining_winners: int):
-                for i in range(len(remaining_matchups) - remaining_winners + 1):
-                    if remaining_winners > 1:
-                        for future_winners in gen_winners(remaining_matchups[i+1:], remaining_winners - 1):
-                            for winner in remaining_matchups[i]:
-                                yield (winner, *future_winners)
-                    else:
-                        for winner in remaining_matchups[i]:
-                            yield (winner,)
-            return list(gen_winners(matchups, number))
 
         # print("Possible weekly outcomes")
         print(f"{ccg_target} ways to clinch CCG:")
         for i in range(1, len(self.__week.games) + 1):
-            for winners in winner_combinations(self.__week.games, i):
+            for winners in _winner_combinations(self.__week.games, i):
                 ccg_prob = self.__week.prob_in_ccg_given_winners(set(winners), ccg_target)
                 prob = self.__week.prob_of_winners(set(winners))
                 score = (ccg_prob - starting_ccg_prob) * prob
@@ -372,6 +373,84 @@ class ConferenceFigures:
                     if name not in self.__figures:
                         self.__figures[name] = fig
                         break
+
+    def table_week_ccg_outcomes(self, interesting_teams: list[TeamName] = []):
+        ordered_games: list[TeamPair] = []
+        for interesting_team in interesting_teams:
+            for game in self.__week.games:
+                if interesting_team in game and game not in ordered_games:
+                    ordered_games.append(game)
+        for game in sorted(self.__week.games, key=lambda matchup: ",".join(matchup)):
+            if game not in ordered_games:
+                ordered_games.append(game)
+
+        all_winners_to_ccg_matchups: dict[TeamNames, TeamPair] = {}
+        for winners in _winner_combinations(ordered_games, len(ordered_games)):
+            ccg_matchup = next(iter(sorted(self.__week.permutations[tuple(sorted(winners))].items(), key=lambda item: item[1], reverse=True)))[0]
+            all_winners_to_ccg_matchups[tuple(winners)] = ccg_matchup
+
+        shortened_winners_to_ccg_matchups: dict[TeamNames, tuple[TeamPair, float]] = {}
+        for i in range(1, len(ordered_games) + 1):
+            for winners in filter(lambda winners: not any(set(winners).issuperset(shortened_winners) for shortened_winners in shortened_winners_to_ccg_matchups.keys()), _winner_combinations(ordered_games, i)):
+                matchup: TeamPair | None = None
+                for ccg_matchup in (ccg_matchup for all_winners, ccg_matchup in all_winners_to_ccg_matchups.items() if set(winners).issubset(all_winners)):
+                    if matchup is None:
+                        matchup = tuple(sorted(ccg_matchup))
+                    elif tuple(sorted(ccg_matchup)) != matchup:
+                        break
+                else:
+                    if matchup:
+                        shortened_winners_to_ccg_matchups[winners] = (matchup, self.__week.prob_of_winners(set(winners)))
+
+        # print("CCG Outcomes")
+        # for winners, (matchup, _) in shortened_winners_to_ccg_matchups.items():
+        #     print("  " + ", ".join(winners) + ": " + " vs ".join(matchup))
+
+        cells = []
+        for winners, (matchup, prob) in sorted(shortened_winners_to_ccg_matchups.items(), key=lambda item: item[1][1], reverse=True):
+            row = []
+            for game in ordered_games:
+                for winner in winners:
+                    if winner in game:
+                        row.append(winner)
+                        break
+                else:
+                    row.append("*")
+            row.append(_rounded_percent_str(prob))
+            row.append(" vs ".join(matchup))
+            cells.append(row)
+
+        cells = cells[:6]
+
+        colors = [["w"] * (len(row) - 2) + [_percent_to_color(row[-2])] + ["w"] for row in cells]
+        col_labels = ["\nat ".join(game) for game in ordered_games] + ["Probability", "CCG Matchup"]
+
+        title = "CCG Matchups Given Winners This Week"
+        fig = plt.figure(title, figsize=(20, 10))
+        ax = plt.gca()
+        fig.patch.set_visible(False)
+        # ax.set_title(title)
+        ax.axis("off")
+        ax.axis("tight")
+        table = ax.table(cells, colLabels=col_labels, loc="center", cellColours=colors)
+        table.scale(1.0, 4)
+        table_box = table.get_tightbbox()
+        row_height = (table_box.y1 - table_box.y0 - 35) / (len(cells) + 1)
+        col_width = (table_box.x1 - table_box.x0 - 120) / len(cells[0])
+        print(row_height, col_width)
+        for i in range(1, len(cells)+1):
+            for j in range(len(cells[0]) - 2):
+                cell = table[i,j]
+                team = cell.get_text().get_text()
+                if team == "*":
+                    continue
+                logo = _get_team_logo(team)
+                # logo = _get_team_logo("BYU")
+                imagebox = OffsetImage(logo, zoom=row_height / max(logo.shape))
+                xy = (table_box.x0 + (j + 0.5) * col_width - 965, -table_box.y0 - (i + 0.5) * row_height + 477)
+                ab = AnnotationBbox(imagebox, xy=(0, 0), xybox=xy, boxcoords="offset points", pad=0, frameon=False)
+                ax.add_artist(ab)
+        self.__figures[f"ccg-matchups-given-winners"] = fig
 
     def table_record_probabilities(self):
         team_probs = {team: self.__conference.prob_final_win_count(team) for team in self.__conference.team_names}
