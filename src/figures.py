@@ -1,12 +1,27 @@
 from sports.season import TeamName, TeamNames, ConferenceName, TeamPair
 from sports.outcomes import ConferenceSeasonOutcomes, ScenarioOutcomes, WeekOutcomes
+import matplotlib
+matplotlib.use("Agg")
+print(matplotlib.get_backend())
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 import math
 
+from plottable import Table, ColumnDefinition
+from plottable.cell import TableCell, Rectangle
+from plottable.plots import image
+import pandas as pd
+
+
+def _get_team_logo_path(team: TeamName):
+    return f"assets/{team.lower().replace(" ", "_")}.png"
+
+def _get_cropped_team_logo_path(team: TeamName):
+    return f"assets/{team.lower().replace(" ", "_")}_cropped.png"
+
 def _get_team_logo(team: TeamName):
-    return plt.imread(f"assets/{team.lower().replace(" ", "_")}.png")
+    return plt.imread(_get_team_logo_path(team))
 
 def _rounded_percent(probability: float) -> float:
     if probability < 1:
@@ -408,44 +423,59 @@ class ConferenceFigures:
             for game in ordered_games:
                 for winner in winners:
                     if winner in game:
-                        row.append(winner)
+                        row.append(_get_cropped_team_logo_path(winner))
                         break
                 else:
-                    row.append("*")
+                    row.append(_get_team_logo_path("any"))
             row.append(_rounded_percent_str(prob))
-            row.append(" vs ".join(matchup))
+            row.append(_get_cropped_team_logo_path(matchup[0]))
+            row.append("vs.")
+            row.append(_get_cropped_team_logo_path(matchup[1]))
+            # row.append(" vs ".join(matchup))
             cells.append(row)
 
-        cells = cells[:7]
+        # cells = cells[:6]
 
         colors = [["w"] * (len(row) - 2) + [_percent_to_color(row[-2])] + ["w"] for row in cells]
-        col_labels = ["\nat ".join(game) for game in ordered_games] + ["Probability", "CCG Matchup"]
+        col_labels = ["\nat ".join(game) for game in ordered_games] + ["Probability", "CCG Team", "vs.", "CCG Team "]
+
+        df = pd.DataFrame({label: [row[i] for row in cells] for i, label in enumerate(col_labels)})
+        df.style.hide(axis="index")
+        coldefs = [ColumnDefinition(name=label, textprops={"ha": "center"}, width=0.5, plot_fn=image) for label in col_labels if label not in {"Probability", "vs."}]
+        coldefs.append(ColumnDefinition(name="vs.", textprops={"ha": "center"}, width=0.25))
+        coldefs.append(ColumnDefinition(name="Probability", textprops={"ha": "center"}, width=0.5))
 
         title = "CCG Matchups Given Winners This Week"
-        fig = plt.figure(title, figsize=(20, 10))
+        fig = plt.figure(title, figsize=(20, 20/(len(col_labels) - 1)*(len(cells) + 1)))
         ax = plt.gca()
-        fig.patch.set_visible(False)
-        # ax.set_title(title)
-        ax.axis("off")
-        ax.axis("tight")
-        table = ax.table(cells, colLabels=col_labels, loc="center", cellColours=colors)
-        table.scale(1.0, 4)
-        table_box = table.get_tightbbox()
-        row_height = (table_box.y1 - table_box.y0 - 35) / (len(cells) + 1)
-        col_width = (table_box.x1 - table_box.x0 - 120) / len(cells[0])
-        print(row_height, col_width)
-        for i in range(1, len(cells)+1):
-            for j in range(len(cells[0]) - 2):
-                cell = table[i,j]
-                team = cell.get_text().get_text()
-                if team == "*":
-                    continue
-                # logo = _get_team_logo(team)
-                logo = _get_team_logo("BYU")
-                imagebox = OffsetImage(logo, zoom=row_height / max(logo.shape))
-                xy = (table_box.x0 + (j + 0.5) * col_width - 965, -table_box.y0 - (i + 0.5) * row_height + 477)
-                ab = AnnotationBbox(imagebox, xy=(0, 0), xybox=xy, boxcoords="offset points", pad=0, frameon=False)
-                ax.add_artist(ab)
+
+        tab = Table(df, column_definitions=coldefs, index_col=col_labels[0])
+        for i in range(len(cells)):
+            cell: TableCell = tab.cells[i,len(col_labels) - 4]
+            cell.rectangle_patch.set_facecolor(_percent_to_color(cells[i][-4]))
+        # fig.patch.set_visible(False)
+        # # ax.set_title(title)
+        # ax.axis("off")
+        # ax.axis("tight")
+        # table = ax.table(cells, colLabels=col_labels, loc="center", cellColours=colors)
+        # table.scale(1.0, 4)
+        # table_box = table.get_tightbbox()
+        # print(len(cells))
+        # row_height = (table_box.y1 - table_box.y0 - (4.5 * (len(cells) + 2))) / (len(cells) + 1)
+        # col_width = (table_box.x1 - table_box.x0 - 120) / len(cells[0])
+        # print(row_height, col_width)
+        # for i in range(1, len(cells)+1):
+        #     for j in range(len(cells[0]) - 2):
+        #         cell = table[i,j]
+        #         team = cell.get_text().get_text()
+        #         if team == "*":
+        #             continue
+        #         # logo = _get_team_logo(team)
+        #         logo = _get_team_logo("BYU")
+        #         imagebox = OffsetImage(logo, zoom=row_height / max(logo.shape))
+        #         xy = (table_box.x0 + (j + 0.5) * col_width - 965, -table_box.y0 - (i + 0.5) * row_height + 477)
+        #         ab = AnnotationBbox(imagebox, xy=(0, 0), xybox=xy, boxcoords="offset points", pad=0, frameon=False)
+        #         ax.add_artist(ab)
         self.__figures[f"ccg-matchups-given-winners"] = fig
 
     def table_record_probabilities(self):
